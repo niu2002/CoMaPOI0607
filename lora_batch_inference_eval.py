@@ -33,6 +33,7 @@ def parse_args():
     parser.add_argument("--top_p", type=float, default=1.0, help="Top-p for generation")
     parser.add_argument("--save_interval", type=int, default=10, help="How often to write interim predictions")
     parser.add_argument("--load_in_4bit", action="store_true", help="Load the base model in 4-bit mode")
+    parser.add_argument("--device_map", type=str, default="auto", help="Transformers device_map value")
     return parser.parse_args()
 
 
@@ -161,7 +162,7 @@ def main():
     print(f"Loading base model from: {base_model_path}")
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_path,
-        device_map="auto",
+        device_map=args.device_map,
         quantization_config=quantization_config,
     )
     model = PeftModel.from_pretrained(base_model, adapter_path)

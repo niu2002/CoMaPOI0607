@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 MODE="${1:-}"
+DEVICE_MAP="${DEVICE_MAP:-cuda}"
 
 if [ -z "$MODE" ]; then
   echo "Usage: $0 <train|smoke|eval> [extra args...]"
@@ -48,6 +49,7 @@ echo "[run] mode=$MODE"
 echo "[run] python=$PYTHON_BIN"
 echo "[run] dataset=$DATASET"
 echo "[run] base_model_path=$BASE_MODEL_PATH"
+echo "[run] device_map=$DEVICE_MAP"
 
 case "$MODE" in
   train)
@@ -64,6 +66,7 @@ case "$MODE" in
       --learning_rate "$LEARNING_RATE" \
       --type merged \
       --op_str "$OP_STR" \
+      --device_map "$DEVICE_MAP" \
       --gradient_checkpointing \
       --bf16 \
       "$@"
@@ -78,6 +81,7 @@ case "$MODE" in
       --max_new_tokens "$MAX_NEW_TOKENS" \
       --temperature "$TEMPERATURE" \
       --top_p "$TOP_P" \
+      --device_map "$DEVICE_MAP" \
       "$@"
     ;;
   eval)
@@ -94,6 +98,7 @@ case "$MODE" in
       --temperature "$TEMPERATURE" \
       --top_p "$TOP_P" \
       --save_interval "$SAVE_INTERVAL" \
+      --device_map "$DEVICE_MAP" \
       "$@"
     ;;
   *)

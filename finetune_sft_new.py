@@ -469,14 +469,14 @@ class ModelTrainer:
                     if bnb_config is not None:
                         model, tokenizer = FastLanguageModel.from_pretrained(
                             args.model_path,
-                            device_map="auto",
+                            device_map=args.device_map,
                             quantization_config=bnb_config,
                             dtype=model_torch_dtype,
                         )
                     else:
                         model, tokenizer = FastLanguageModel.from_pretrained(
                             args.model_path,
-                            device_map="auto",
+                            device_map=args.device_map,
                             dtype=model_torch_dtype,
                         )
                 except Exception as e:
@@ -516,14 +516,14 @@ class ModelTrainer:
                     if bnb_config is not None:
                         model = AutoModelForCausalLM.from_pretrained(
                             args.model_path,
-                            device_map="auto",
+                            device_map=args.device_map,
                             quantization_config=bnb_config,
                             torch_dtype=model_torch_dtype,
                         )
                     else:
                         model = AutoModelForCausalLM.from_pretrained(
                             args.model_path,
-                            device_map="auto",
+                            device_map=args.device_map,
                             torch_dtype=model_torch_dtype,
                         )
                 except Exception as e:
@@ -531,7 +531,7 @@ class ModelTrainer:
                     print("Trying to load model without quantization...")
                     model = AutoModelForCausalLM.from_pretrained(
                         args.model_path,
-                        device_map="auto",
+                        device_map=args.device_map,
                         torch_dtype=model_torch_dtype,
                     )
 
@@ -560,22 +560,22 @@ class ModelTrainer:
                 if bnb_config is not None:
                     model = AutoModelForCausalLM.from_pretrained(
                         args.model_path,
-                        device_map="auto",
+                        device_map=args.device_map,
                         quantization_config=bnb_config,
                         torch_dtype=model_torch_dtype,
                     )
                 else:
-                    model = AutoModelForCausalLM.from_pretrained(
-                        args.model_path,
-                        device_map="auto",
-                        torch_dtype=model_torch_dtype,
-                    )
+                model = AutoModelForCausalLM.from_pretrained(
+                    args.model_path,
+                    device_map=args.device_map,
+                    torch_dtype=model_torch_dtype,
+                )
             except Exception as e:
                 print(f"Error loading model with quantization: {e}")
                 print("Trying to load model without quantization...")
                 model = AutoModelForCausalLM.from_pretrained(
                     args.model_path,
-                    device_map="auto",
+                    device_map=args.device_map,
                     torch_dtype=model_torch_dtype,
                 )
 
@@ -675,6 +675,7 @@ def get_args():
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--num_workers", type=int, default=0, help="Number of worker threads for data loader")
     parser.add_argument("--output_dir", type=str, default="output", help="Output directory")
+    parser.add_argument("--device_map", type=str, default="auto", help="Transformers device_map value")
     parser.add_argument("--log_freq", default=10, type=int, help="Logging frequency")
     parser.add_argument("--save_freq", default=40, type=int, help="Model saving frequency")
     parser.add_argument("--nb_examples", default=20000, type=int, help="Number of examples")
