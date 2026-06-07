@@ -23,11 +23,16 @@ TEST_DATA_PATH="${TEST_DATA_PATH:-$DATA_ROOT/${DATASET}_test.jsonl}"
 
 OP_STR="${OP_STR:-amd-debug}"
 SEQ_LENGTH="${SEQ_LENGTH:-2048}"
-BATCH_SIZE="${BATCH_SIZE:-1}"
-GRAD_ACC="${GRAD_ACC:-4}"
-MAX_STEPS="${MAX_STEPS:-100}"
+BATCH_SIZE="${BATCH_SIZE:-40}"
+GRAD_ACC="${GRAD_ACC:-1}"
+MAX_STEPS="${MAX_STEPS:--1}"
+NUM_TRAIN_EPOCHS="${NUM_TRAIN_EPOCHS:-1}"
 LEARNING_RATE="${LEARNING_RATE:-1e-4}"
 NUM_WORKERS="${NUM_WORKERS:-0}"
+TRAIN_NUM_SAMPLES="${TRAIN_NUM_SAMPLES:-0}"
+LOG_FREQ="${LOG_FREQ:-5}"
+SAVE_FREQ="${SAVE_FREQ:-10}"
+SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-3}"
 TOP_K="${TOP_K:-5}"
 NUM_BEAMS="${NUM_BEAMS:-5}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-64}"
@@ -41,6 +46,16 @@ SAVE_INTERVAL="${SAVE_INTERVAL:-10}"
 SAVE_NAME="bs${BATCH_SIZE}-gas${GRAD_ACC}-ms${MAX_STEPS}-merged-lr${LEARNING_RATE}"
 DEFAULT_ADAPTER_PATH="$PROJECT_ROOT/finetune/results/$OP_STR/sft-$DATASET/$SAVE_NAME"
 ADAPTER_PATH="${ADAPTER_PATH:-$DEFAULT_ADAPTER_PATH}"
+RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-}"
+
+if [ "$RESUME_FROM_CHECKPOINT" = "latest" ]; then
+  latest_checkpoint="$(find "$DEFAULT_ADAPTER_PATH" -maxdepth 1 -type d -name 'checkpoint-*' | sort -V | tail -n 1 || true)"
+  if [ -z "$latest_checkpoint" ]; then
+    echo "[run] resume requested but no checkpoint found under $DEFAULT_ADAPTER_PATH"
+    exit 1
+  fi
+  RESUME_FROM_CHECKPOINT="$latest_checkpoint"
+fi
 
 cd "$PROJECT_ROOT"
 
@@ -50,6 +65,12 @@ echo "[run] python=$PYTHON_BIN"
 echo "[run] dataset=$DATASET"
 echo "[run] base_model_path=$BASE_MODEL_PATH"
 echo "[run] device_map=$DEVICE_MAP"
+echo "[run] batch_size=$BATCH_SIZE"
+echo "[run] grad_acc=$GRAD_ACC"
+echo "[run] max_steps=$MAX_STEPS"
+echo "[run] num_train_epochs=$NUM_TRAIN_EPOCHS"
+echo "[run] save_freq=$SAVE_FREQ"
+echo "[run] resume_from_checkpoint=${RESUME_FROM_CHECKPOINT:-<none>}"
 
 case "$MODE" in
   train)
@@ -62,11 +83,17 @@ case "$MODE" in
       --batch_size "$BATCH_SIZE" \
       --gradient_accumulation_steps "$GRAD_ACC" \
       --num_workers "$NUM_WORKERS" \
+      --num_samples "$TRAIN_NUM_SAMPLES" \
       --max_steps "$MAX_STEPS" \
+      --num_train_epochs "$NUM_TRAIN_EPOCHS" \
       --learning_rate "$LEARNING_RATE" \
+      --log_freq "$LOG_FREQ" \
+      --save_freq "$SAVE_FREQ" \
+      --save_total_limit "$SAVE_TOTAL_LIMIT" \
       --type merged \
       --op_str "$OP_STR" \
       --device_map "$DEVICE_MAP" \
+      --resume_from_checkpoint "$RESUME_FROM_CHECKPOINT" \
       --gradient_checkpointing \
       --bf16 \
       "$@"

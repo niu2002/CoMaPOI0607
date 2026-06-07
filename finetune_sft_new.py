@@ -422,6 +422,7 @@ class ModelTrainer:
             neftune_noise_alpha=5,
             use_liger_kernel=False,
             disable_tqdm=True,
+            save_total_limit=args.save_total_limit,
         )
 
         print("Starting main loop")
@@ -621,7 +622,10 @@ class ModelTrainer:
             torch.cuda.reset_peak_memory_stats()
 
         # Train model
-        trainer.train()
+        resume_from_checkpoint = args.resume_from_checkpoint or None
+        if resume_from_checkpoint:
+            print(f"Resuming from checkpoint: {resume_from_checkpoint}")
+        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
         end_time = time.time()
         print("Training complete")
@@ -678,6 +682,7 @@ def get_args():
     parser.add_argument("--device_map", type=str, default="auto", help="Transformers device_map value")
     parser.add_argument("--log_freq", default=10, type=int, help="Logging frequency")
     parser.add_argument("--save_freq", default=40, type=int, help="Model saving frequency")
+    parser.add_argument("--save_total_limit", default=3, type=int, help="Maximum number of checkpoints to keep")
     parser.add_argument("--nb_examples", default=20000, type=int, help="Number of examples")
     parser.add_argument("--run_name", default="sft_training", type=str, help="Run name")
     parser.add_argument("--save_name", default="sft_training", type=str, help="Save name")
@@ -685,6 +690,7 @@ def get_args():
     parser.add_argument("--type", default='merged', type=str, help="Training type (merged, agent1, agent2, agent3)")
     parser.add_argument("--unsloth", action="store_true", help="Use Unsloth acceleration (single GPU only, not compatible with phi3.5)")
     parser.add_argument('--op_str', type=str, default='4-14', help='Operation string for output directory naming')
+    parser.add_argument("--resume_from_checkpoint", type=str, default="", help="Checkpoint path to resume training from")
 
     return parser.parse_args()
 
