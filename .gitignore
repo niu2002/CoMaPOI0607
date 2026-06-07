@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.idea/
+
+artifacts/
+finetune/results/
+models/Qwen3.5-2B/

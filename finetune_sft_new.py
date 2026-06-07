@@ -49,9 +49,7 @@ if not hasattr(np, 'float_'):
 from trl import SFTTrainer, SFTConfig
 from peft import get_peft_model, LoraConfig
 from datasets import load_dataset
-
-from utils import convert_content_to_string
-
+from run_logging import setup_run_logging
 
 # Helper functions for data processing
 def prepare_sample_text(example: Dict[str, Any]) -> str:
@@ -136,7 +134,12 @@ def chars_token_ratio(dataset, tokenizer, args) -> Tuple[float, int]:
     max_token_count = 0
     nb_examples = len(dataset)
 
-    for _, example in tqdm(zip(range(nb_examples), iter(dataset)), total=nb_examples):
+    for _, example in tqdm(
+        zip(range(nb_examples), iter(dataset)),
+        total=nb_examples,
+        ascii=True,
+        dynamic_ncols=True,
+    ):
         token_count = count_tokens(example, tokenizer)
         text = prepare_sample_text(example)
         max_token_count = max(max_token_count, token_count)
@@ -387,7 +390,7 @@ class ModelTrainer:
         sft_config = SFTConfig(
             output_dir=output_dir,
             dataloader_drop_last=True,
-            max_seq_length=args.seq_length,
+            max_length=args.seq_length,
             max_steps=args.max_steps,
             num_train_epochs=args.num_train_epochs,
             save_steps=args.save_freq,
@@ -403,9 +406,11 @@ class ModelTrainer:
             weight_decay=args.weight_decay,
             run_name=args.run_name,
             report_to="none",
+            dataloader_num_workers=args.num_workers,
             ddp_find_unused_parameters=False,
             neftune_noise_alpha=5,
-            use_liger=True,
+            use_liger_kernel=False,
+            disable_tqdm=True,
         )
 
         print("Starting main loop")
@@ -577,12 +582,14 @@ class ModelTrainer:
             model=model,
             args=sft_config,
             train_dataset=train_data,
-            tokenizer=tokenizer,  # Explicitly pass tokenizer
+            processing_class=tokenizer,
         )
 
         print_trainable_parameters(trainer.model)
         print("Starting training")
         start_time = time.time()
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
 
         # Train model
         trainer.train()
@@ -591,6 +598,8 @@ class ModelTrainer:
         print("Training complete")
         total_time = end_time - start_time
         print(f"Time taken: {total_time}s ({total_time/60:.2f} minutes)")
+        if torch.cuda.is_available():
+            print(f"Peak CUDA memory allocated: {torch.cuda.max_memory_allocated() / 1024 / 1024:.2f} MB")
         save_path = output_dir
         print(f"Saving model to {save_path}")
 
@@ -667,8 +676,16 @@ def main():
     agent2_path = str(finetune_data_root / "agent2_train_samples.jsonl")
     agent3_path = str(finetune_data_root / "agent3_train_samples.jsonl")
 
+    # Use an explicitly provided training file when available.
+    if args.data_path:
+        explicit_data_path = Path(args.data_path)
+        if not explicit_data_path.is_absolute():
+            explicit_data_path = (project_root / explicit_data_path).resolve()
+        args.data_path = str(explicit_data_path)
+        print(f"Using explicit training file: {args.data_path}")
+
     # Process data based on agent type
-    if args.type == 'agent1':
+    elif args.type == 'agent1':
         cleaned_train_file_path = str(finetune_data_root / "agent1_train_samples_all.jsonl")
         cleaned_test_file_path = str(finetune_data_root / "agent1_train_samples_100.jsonl")
         DataProcessor.check_and_process_files(agent1_path, cleaned_train_file_path, cleaned_test_file_path, test_size=100)
@@ -710,6 +727,7 @@ def main():
     args.run_name = f'bs{args.batch_size}-gas{args.gradient_accumulation_steps}-ms{args.max_steps}-{args.type}-lr{args.learning_rate}'
     args.save_name = f'bs{args.batch_size}-gas{args.gradient_accumulation_steps}-ms{args.max_steps}-{args.type}-lr{args.learning_rate}'
     args.output_dir = str((finetune_results_root / args.op_str / f"sft-{args.dataset}" / args.save_name).resolve())
+    args.log_path = str(setup_run_logging(project_root, "train", args.dataset, args))
 
     # Print arguments
     print("Parameter list:")
