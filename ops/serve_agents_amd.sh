@@ -34,14 +34,13 @@ base_cmd=(
   --dtype auto
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
   --disable-log-stats
-  --disable-log-requests
 )
 
 if [[ -n "$AGENT1_ADAPTER_PATH" && -n "$AGENT2_ADAPTER_PATH" && -n "$AGENT3_ADAPTER_PATH" ]]; then
   echo "[serve] enabling LoRA adapters for agent1/agent2/agent3"
   base_cmd+=(
     --enable-lora
-    --max_loras "$MAX_LORAS"
+    --max-loras "$MAX_LORAS"
     --lora-modules
     "agent1=$AGENT1_ADAPTER_PATH"
     "agent2=$AGENT2_ADAPTER_PATH"
