@@ -9,6 +9,7 @@ import json
 import os
 import time
 import re
+import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import agentscope
@@ -343,6 +344,18 @@ def process_single_profile(params):
         return None
 
 
+def safe_process_single_profile(params):
+    """Wrap profile generation so process pool returns pickle-safe results."""
+    try:
+        return {"ok": True, "result": process_single_profile(params)}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+        }
+
+
 def React_process_and_save_profiles(args, output_file):
     """
     Process and save user profiles in parallel.
@@ -362,14 +375,26 @@ def React_process_and_save_profiles(args, output_file):
     params_list = [(i, args) for i in range(start_point, n)]
 
     results = []
-    with ProcessPoolExecutor(max_workers=args.batch_size) as executor:
-        futures = [executor.submit(process_single_profile, params) for params in params_list]
-
-        # Use green progress bar with tqdm
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing profiles", colour="green"):
-            result = future.result()
+    if args.batch_size <= 1:
+        for params in tqdm(params_list, total=len(params_list), desc="Processing profiles", colour="green"):
+            result = process_single_profile(params)
             if result:
                 results.append(result)
+    else:
+        with ProcessPoolExecutor(max_workers=args.batch_size) as executor:
+            futures = [executor.submit(safe_process_single_profile, params) for params in params_list]
+
+            # Use green progress bar with tqdm
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing profiles", colour="green"):
+                payload = future.result()
+                if not payload["ok"]:
+                    raise RuntimeError(
+                        "Profile worker failed: "
+                        f"{payload['error']}\n{payload['traceback']}"
+                    )
+                result = payload["result"]
+                if result:
+                    results.append(result)
 
     # Save results to file
     if results:
@@ -568,6 +593,18 @@ def single_predict_save(params):
     return user_id, label, valid_poi_ids[:args.top_k], init_valid_poi_ids[:args.top_k], reasoning_path
 
 
+def safe_single_predict_save(params):
+    """Wrap saved-reasoning prediction for process-pool-safe error transport."""
+    try:
+        return {"ok": True, "result": single_predict_save(params)}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+        }
+
+
 def single_predict(params):
     """
     Predict POIs for a single sample using the full agent pipeline.
@@ -671,6 +708,18 @@ def single_predict(params):
     return user_id, label, valid_poi_ids[:args.top_k], init_valid_poi_ids[:args.top_k], reasoning_path
 
 
+def safe_single_predict(params):
+    """Wrap forward prediction so process pool returns pickle-safe results."""
+    try:
+        return {"ok": True, "result": single_predict(params)}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+        }
+
+
 class ForwardInferenceProcessor:
     """
     Main class for forward inference processing.
@@ -743,36 +792,48 @@ class ForwardInferenceProcessor:
 
         all_predictions = {}
 
-        # Run parallel processing
-        with ProcessPoolExecutor(max_workers=args.batch_size) as executor:
-            if args.load_pf_output:
-                futures = [executor.submit(single_predict_save, params) for params in params_list]
-            else:
-                futures = [executor.submit(single_predict, params) for params in params_list]
+        def save_prediction_result(prediction_tuple):
+            user_id, label, valid_poi_ids, init_valid_poi_ids, reasoning_path = prediction_tuple
 
-            # Use green progress bar with tqdm
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Predicting POIs", colour="green"):
-                user_id, label, valid_poi_ids, init_valid_poi_ids, reasoning_path = future.result()
+            all_predictions[user_id] = {
+                "user_id": user_id,
+                "label": label,
+                "reasoning_path": reasoning_path,
+                "predicted_poi_ids": valid_poi_ids,
+                "init_valid_poi_ids": init_valid_poi_ids,
+            }
 
-                all_predictions[user_id] = {
-                    "user_id": user_id,
-                    "label": label,
-                    "reasoning_path": reasoning_path,
-                    "predicted_poi_ids": valid_poi_ids,
-                    "init_valid_poi_ids": init_valid_poi_ids,
-                }
+            # Save and evaluate at intervals
+            if len(all_predictions) % args.test_interval == 0:
+                print(f"\n[INFO] Completed {len(all_predictions)} samples. Saving interim results and evaluating.")
+                interim_output_json = f'{results_path}/interim_poi_predictions_{len(all_predictions)}.json'
 
-                # Save and evaluate at intervals
-                if len(all_predictions) % args.test_interval == 0:
-                    print(f"\n[INFO] Completed {len(all_predictions)} samples. Saving interim results and evaluating.")
-                    interim_output_json = f'{results_path}/interim_poi_predictions_{len(all_predictions)}.json'
+                # Save interim predictions
+                with open(interim_output_json, 'w', encoding='utf-8') as f:
+                    json.dump(list(all_predictions.values()), f, ensure_ascii=False, indent=4)
 
-                    # Save interim predictions
-                    with open(interim_output_json, 'w', encoding='utf-8') as f:
-                        json.dump(list(all_predictions.values()), f, ensure_ascii=False, indent=4)
+                # Evaluate interim results
+                evaluate_poi_predictions(args, interim_output_json, top_k, metrics_txt, metrics_csv, key='predicted_poi_ids')
 
-                    # Evaluate interim results
-                    evaluate_poi_predictions(args, interim_output_json, top_k, metrics_txt, metrics_csv, key='predicted_poi_ids')
+        # Run prediction.
+        if args.batch_size <= 1:
+            predict_fn = single_predict_save if args.load_pf_output else single_predict
+            for params in tqdm(params_list, total=len(params_list), desc="Predicting POIs", colour="green"):
+                save_prediction_result(predict_fn(params))
+        else:
+            with ProcessPoolExecutor(max_workers=args.batch_size) as executor:
+                submit_fn = safe_single_predict_save if args.load_pf_output else safe_single_predict
+                futures = [executor.submit(submit_fn, params) for params in params_list]
+
+                # Use green progress bar with tqdm
+                for future in tqdm(as_completed(futures), total=len(futures), desc="Predicting POIs", colour="green"):
+                    payload = future.result()
+                    if not payload["ok"]:
+                        raise RuntimeError(
+                            "Prediction worker failed: "
+                            f"{payload['error']}\n{payload['traceback']}"
+                        )
+                    save_prediction_result(payload["result"])
 
         # Save final results
         print("\n[INFO] Processing complete. Saving final prediction results.")
