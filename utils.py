@@ -4,9 +4,53 @@ import json
 import os
 import re
 import logging
+from pathlib import Path
 from tqdm import tqdm
 from rag.RAG import *
 logging.basicConfig(level=logging.INFO)
+
+
+def extract_user_and_subtrajectory(content):
+    """
+    Extract user_id and subtrajectory_id from either JSON-like or natural-text prompts.
+
+    Supported examples:
+    - {"user_id": 12, "subtrajectory_id": 3}
+    - user_id: 12, subtrajectory_id: 3
+    - <historical trajectory of user_12_subtrajectory_3>
+    """
+    if not content:
+        return None, None
+
+    patterns = [
+        r'"user_id"\s*:\s*"?(\d+)"?.*?"subtrajectory_id"\s*:\s*"?(\d+)"?',
+        r'user_id\s*:\s*"?(\d+)"?.*?subtrajectory_id\s*:\s*"?(\d+)"?',
+        r'user_(\d+)_subtrajectory_(\d+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, content, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            return match.group(1), match.group(2)
+
+    user_match = re.search(r'"user_id"\s*:\s*"?(\d+)"?|user_id\s*:\s*"?(\d+)"?|user_(\d+)', content, flags=re.IGNORECASE)
+    if user_match:
+        for group in user_match.groups():
+            if group is not None:
+                return group, None
+
+    return None, None
+
+
+def resolve_dataset_path(*relative_candidates):
+    """
+    Resolve a dataset asset path by trying multiple relative candidates from project root.
+    """
+    project_root = Path(__file__).resolve().parent
+    for relative_candidate in relative_candidates:
+        candidate = (project_root / relative_candidate).resolve()
+        if candidate.exists():
+            return str(candidate)
+    return str((project_root / relative_candidates[0]).resolve())
 
 def extract_label_from_sample(sample):
     """Extract next_poi_id as label from the 'assistant' message in the sample."""
@@ -130,17 +174,14 @@ def get_profile_information(agent, user_id, dataset):
     """
     try:
         # Load historical trajectory data
-        historical_trajectory_path = f'dataset_all/{dataset}/train/{dataset}_train.jsonl'
-
+        historical_trajectory_path = resolve_dataset_path(
+            f'dataset_all/{dataset}/train/{dataset}_train.jsonl',
+            f'dataset_all/{dataset}_train.jsonl',
+            f'dataset_all/{dataset}/{dataset}_train.jsonl',
+        )
         if not os.path.exists(historical_trajectory_path):
             logging.error(f"Historical trajectory file not found: {historical_trajectory_path}")
-            # Try alternative path
-            alternative_path = f'dataset_all/{dataset}/{dataset}_train.jsonl'
-            if os.path.exists(alternative_path):
-                logging.info(f"Using alternative path: {alternative_path}")
-                historical_trajectory_path = alternative_path
-            else:
-                return None, None
+            return None, None
 
         # Read historical trajectory data
         historical_trajectory = []
@@ -156,8 +197,8 @@ def get_profile_information(agent, user_id, dataset):
                     for msg in messages:
                         if msg.get('role') == 'user':
                             content = msg.get('content', '')
-                            match = re.search(r'"user_id":\s*"?(\d+)"?', content)
-                            if match and match.group(1) == user_id_str:
+                            extracted_user_id, _ = extract_user_and_subtrajectory(content)
+                            if extracted_user_id == user_id_str:
                                 historical_trajectory.append(data)
                                 break
                 except json.JSONDecodeError as e:
@@ -203,9 +244,9 @@ def parse_user_and_trajectory(messages):
             content = msg.get('content', '')
 
             # Extract user ID
-            user_match = re.search(r'"user_id":\s*"?(\d+)"?', content)
-            if user_match:
-                user_id = user_match.group(1)
+            extracted_user_id, _ = extract_user_and_subtrajectory(content)
+            if extracted_user_id:
+                user_id = extracted_user_id
 
             # Extract current trajectory
             current_trajectory = content
@@ -227,6 +268,50 @@ def parse_user_and_trajectory(messages):
                     label = label_match.group(1)
 
     return user_id, label, current_trajectory
+
+
+def parse_user_and_trajectory_train(messages):
+    """
+    Parse user_id, subtrajectory_id, label, and current_trajectory from training-format messages.
+    """
+    user_id = None
+    subtrajectory_id = None
+    current_trajectory = None
+    label = None
+
+    for msg in messages:
+        content = msg.get('content', '')
+
+        if msg.get('role') in {'system', 'user'}:
+            extracted_user_id, extracted_subtrajectory_id = extract_user_and_subtrajectory(content)
+            if extracted_user_id and not user_id:
+                user_id = extracted_user_id
+            if extracted_subtrajectory_id and not subtrajectory_id:
+                subtrajectory_id = extracted_subtrajectory_id
+
+        if msg.get('role') == 'user':
+            current_trajectory = content.strip()
+
+        elif msg.get("role") == "assistant":
+            try:
+                label_content = str(msg.get("content", "{}")).strip()
+                label_data = json.loads(label_content)
+                if isinstance(label_data, dict):
+                    label = label_data.get("next_poi_id", None)
+                elif isinstance(label_data, int):
+                    label = label_data
+            except (json.JSONDecodeError, TypeError):
+                label_match = re.search(r'"next_poi_id"\s*:\s*(\d+)', str(msg.get("content", "")))
+                if label_match:
+                    label = label_match.group(1)
+
+    if not user_id and current_trajectory:
+        user_id, subtrajectory_id = extract_user_and_subtrajectory(current_trajectory)
+
+    if not user_id or not current_trajectory:
+        raise ValueError("Unable to parse user_id or current_trajectory from training sample.")
+
+    return user_id, subtrajectory_id, label, current_trajectory
 
 def clean_predicted_pois(predicted_pois, max_item):
     """
@@ -326,9 +411,9 @@ def create_prompt_json(args, sample):
     for msg in messages:
         if msg.get("role") == "user":
             content = msg.get("content", "")
-            user_match = re.search(r'"user_id":\s*"?(\d+)"?', content)
-            if user_match:
-                user_id = user_match.group(1)
+            extracted_user_id, _ = extract_user_and_subtrajectory(content)
+            if extracted_user_id:
+                user_id = extracted_user_id
             current_trajectory = content
         elif msg.get("role") == "assistant":
             content = msg.get("content", "")
@@ -366,7 +451,10 @@ def access_poi_info(args, poi_id: int) -> tuple:
         tuple: 包含 POI ID, category, lat, lon 的元组。
                如果未找到，返回 (poi_id, "Unknown", 0.0, 0.0)。
     """
-    file_path = f"dataset/{args.dataset}/{args.dataset}_poi_info.csv"
+    file_path = resolve_dataset_path(
+        f"dataset_all/{args.dataset}/{args.dataset}_poi_info.csv",
+        f"dataset_all/{args.dataset}_poi_info.csv",
+    )
 
     try:
         # 读取CSV文件
@@ -419,9 +507,9 @@ def create_prompt_ori(args, sample):
     for msg in messages:
         if msg.get("role") == "user":
             content = msg.get("content", "")
-            user_match = re.search(r'"user_id":\s*"?(\d+)"?', content)
-            if user_match:
-                user_id = user_match.group(1)
+            extracted_user_id, _ = extract_user_and_subtrajectory(content)
+            if extracted_user_id:
+                user_id = extracted_user_id
             current_trajectory = content
         elif msg.get("role") == "assistant":
             content = msg.get("content", "")
