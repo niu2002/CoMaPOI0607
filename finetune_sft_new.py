@@ -565,11 +565,11 @@ class ModelTrainer:
                         torch_dtype=model_torch_dtype,
                     )
                 else:
-                model = AutoModelForCausalLM.from_pretrained(
-                    args.model_path,
-                    device_map=args.device_map,
-                    torch_dtype=model_torch_dtype,
-                )
+                    model = AutoModelForCausalLM.from_pretrained(
+                        args.model_path,
+                        device_map=args.device_map,
+                        torch_dtype=model_torch_dtype,
+                    )
             except Exception as e:
                 print(f"Error loading model with quantization: {e}")
                 print("Trying to load model without quantization...")
