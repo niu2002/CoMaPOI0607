@@ -176,6 +176,13 @@ def get_candidate_poi_lists(args, candidate_poi_list_agent2, candidate_poi_list_
         # Remove duplicates while preserving order
         unique_list = []
         for poi_id in poi_list:
+            try:
+                poi_id = int(poi_id)
+            except (TypeError, ValueError):
+                continue
+            if not (1 <= poi_id <= args.max_item):
+                continue
+            poi_id = str(poi_id)
             if poi_id not in seen_set:
                 seen_set.add(poi_id)
                 unique_list.append(poi_id)
@@ -200,6 +207,53 @@ def get_candidate_poi_lists(args, candidate_poi_list_agent2, candidate_poi_list_
     processed_agent1 = process_poi_list(candidate_poi_list_agent1, seen_agent1)
 
     return processed_agent2, processed_agent1
+
+
+def normalize_agent_candidate_lists(args, candidate_poi_list_agent1, candidate_poi_list_agent2, rag_candidates):
+    """
+    Normalize and backfill agent candidate lists.
+
+    Strategy:
+    1. If one agent has no valid candidates, borrow the other agent's candidates.
+    2. If both are empty, fall back to RAG candidates.
+    3. Pad/truncate each list with RAG candidates to exactly num_candidate items.
+    """
+    candidate_poi_list_agent1 = candidate_poi_list_agent1 or []
+    candidate_poi_list_agent2 = candidate_poi_list_agent2 or []
+    rag_candidates = rag_candidates or []
+
+    if not candidate_poi_list_agent1 and candidate_poi_list_agent2:
+        candidate_poi_list_agent1 = list(candidate_poi_list_agent2)
+    if not candidate_poi_list_agent2 and candidate_poi_list_agent1:
+        candidate_poi_list_agent2 = list(candidate_poi_list_agent1)
+
+    processed_agent2, processed_agent1 = get_candidate_poi_lists(
+        args,
+        candidate_poi_list_agent2,
+        candidate_poi_list_agent1,
+        rag_candidates,
+    )
+    return processed_agent1, processed_agent2
+
+
+def build_prediction_fallback_pool(args, candidate_poi_list_agent1, candidate_poi_list_agent2, rag_candidates):
+    """
+    Build a deterministic fallback ranking pool for final prediction.
+    """
+    fallback = []
+    seen = set()
+    for source in (candidate_poi_list_agent2, candidate_poi_list_agent1, rag_candidates):
+        for poi_id in source or []:
+            try:
+                poi_id = int(poi_id)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= poi_id <= args.max_item and poi_id not in seen:
+                seen.add(poi_id)
+                fallback.append(poi_id)
+            if len(fallback) >= max(args.top_k, args.num_candidate):
+                return fallback
+    return fallback
 
 
 def init_agents(args):
@@ -563,6 +617,21 @@ def single_predict_save(params):
     if not all([long_term_profile, short_pattern_response, candidate_poi_list_agent1, candidate_poi_list_agent2]):
         raise ValueError(f"Failed to load reasoning_path for user extracted from input: {user_id}.")
 
+    candidate_poi_list_agent1 = extract_and_clean_poi(
+        candidate_poi_list_agent1,
+        top_k=args.num_candidate,
+        max_item=args.max_item,
+        key_name="candidate_poi_list_from_profile",
+        strict=False,
+    )
+    candidate_poi_list_agent2 = extract_and_clean_poi(
+        candidate_poi_list_agent2,
+        top_k=args.num_candidate,
+        max_item=args.max_item,
+        key_name="refined_candidate_from_rag",
+        strict=False,
+    )
+
     # Apply ablation settings if specified
     if args.ab_type == 'profiler':
         long_term_profile = 'None'
@@ -588,6 +657,20 @@ def single_predict_save(params):
 
     # Get RAG candidates
     rag_candidates = user_to_candidate_map[user_id]
+    fallback_prediction_pool = []
+    if args.ab_type == 'none':
+        candidate_poi_list_agent1, candidate_poi_list_agent2 = normalize_agent_candidate_lists(
+            args,
+            candidate_poi_list_agent1,
+            candidate_poi_list_agent2,
+            rag_candidates,
+        )
+        fallback_prediction_pool = build_prediction_fallback_pool(
+            args,
+            candidate_poi_list_agent1,
+            candidate_poi_list_agent2,
+            rag_candidates,
+        )
 
     # Generate predictions
     init_prediction, final_prediction = final_prediction_steps(Final_Predictor, prompt_provider, long_term_profile,
@@ -602,6 +685,8 @@ def single_predict_save(params):
         key_name="next_poi_id",
         strict=True,
     )
+    if not init_predicted_pois and fallback_prediction_pool:
+        init_predicted_pois = fallback_prediction_pool[:args.top_k]
     init_valid_poi_ids = merge_valid_pois(valid_poi_ids, init_predicted_pois, args.top_k)
 
     # Process final prediction
@@ -612,6 +697,8 @@ def single_predict_save(params):
         key_name="next_poi_id",
         strict=True,
     )
+    if not predicted_pois and fallback_prediction_pool:
+        predicted_pois = fallback_prediction_pool[:args.top_k]
     valid_poi_ids = merge_valid_pois(valid_poi_ids, predicted_pois, args.top_k)
 
     # Create reasoning path string
@@ -740,6 +827,20 @@ def single_predict(params):
 
     # Get RAG candidates
     rag_candidates = user_to_candidate_map[user_id]
+    fallback_prediction_pool = []
+    if args.ab_type == 'none':
+        candidate_poi_list_agent1, candidate_poi_list_agent2 = normalize_agent_candidate_lists(
+            args,
+            candidate_poi_list_agent1,
+            candidate_poi_list_agent2,
+            rag_candidates,
+        )
+        fallback_prediction_pool = build_prediction_fallback_pool(
+            args,
+            candidate_poi_list_agent1,
+            candidate_poi_list_agent2,
+            rag_candidates,
+        )
 
     # Generate predictions
     init_prediction, final_prediction = final_prediction_steps(Final_Predictor, prompt_provider, long_term_profile,
@@ -754,6 +855,8 @@ def single_predict(params):
         key_name="next_poi_id",
         strict=True,
     )
+    if not init_predicted_pois and fallback_prediction_pool:
+        init_predicted_pois = fallback_prediction_pool[:args.top_k]
     init_valid_poi_ids = merge_valid_pois(valid_poi_ids, init_predicted_pois, args.top_k)
 
     # Process final prediction
@@ -764,6 +867,8 @@ def single_predict(params):
         key_name="next_poi_id",
         strict=True,
     )
+    if not predicted_pois and fallback_prediction_pool:
+        predicted_pois = fallback_prediction_pool[:args.top_k]
     valid_poi_ids = merge_valid_pois(valid_poi_ids, predicted_pois, args.top_k)
 
     # Create reasoning path string
