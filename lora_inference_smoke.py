@@ -12,6 +12,7 @@ from pathlib import Path
 import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers.utils import logging as transformers_logging
 
 from run_logging import setup_run_logging
 
@@ -53,6 +54,7 @@ def maybe_extract_poi_id(text: str) -> str:
 def main():
     args = parse_args()
     project_root = Path(__file__).resolve().parent
+    transformers_logging.disable_progress_bar()
 
     if args.data_path:
         data_path = Path(args.data_path)

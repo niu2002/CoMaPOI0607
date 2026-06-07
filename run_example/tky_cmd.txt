@@ -1,0 +1,29 @@
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
+
+echo [1/2] Train full TKY dataset with LoRA
+F:\jjy\conda\envs\co0607\python.exe F:\jjy\project\CoMaPoi0607\finetune_sft_new.py ^
+  --dataset tky ^
+  --model Qwen3.5-2B ^
+  --model_path F:\jjy\project\CoMaPoi0607\models ^
+  --data_path F:\jjy\project\CoMaPoi0607\dataset_all\tky_train.jsonl ^
+  --num_samples 0 ^
+  --seq_length 2048 ^
+  --batch_size 2 ^
+  --gradient_accumulation_steps 1 ^
+  --gradient_checkpointing ^
+  --bf16 ^
+  --num_workers 0 ^
+  --max_steps 100 ^
+  --op_str 6-07-full
+
+echo [2/2] Evaluate full TKY test set with the new adapter
+F:\jjy\conda\envs\co0607\python.exe F:\jjy\project\CoMaPoi0607\lora_batch_inference_eval.py ^
+  --dataset tky ^
+  --data_path F:\jjy\project\CoMaPoi0607\dataset_all\tky_test.jsonl ^
+  --base_model_path F:\jjy\project\CoMaPoi0607\models\Qwen3.5-2B ^
+  --adapter_path F:\jjy\project\CoMaPoi0607\finetune\results\6-07-full\sft-tky\bs2-gas1-ms100-merged-lr0.0001 ^
+  --num_samples 0 ^
+  --top_k 5 ^
+  --num_beams 5 ^
+  --load_in_4bit

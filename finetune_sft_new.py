@@ -354,9 +354,20 @@ class DataProcessor:
         chars_per_token, max_token_count = chars_token_ratio(dataset, tokenizer, args)
         print(f"Maximum token count: {max_token_count}")
 
-        # Update maximum sequence length
-        args.seq_length = max(max_token_count, args.seq_length)
-        print(f"Setting maximum sequence length to: {args.seq_length}")
+        # Keep seq_length as a user-controlled cap by default.
+        # On 12 GB GPUs under Windows/WDDM, auto-expanding to the longest sample
+        # can trigger shared-memory/page-backed execution and make training crawl.
+        if max_token_count > args.seq_length:
+            if args.auto_expand_seq_length:
+                args.seq_length = max_token_count
+                print(f"Auto-expanded maximum sequence length to: {args.seq_length}")
+            else:
+                print(
+                    f"Maximum token count {max_token_count} exceeds seq_length cap {args.seq_length}; "
+                    "keeping the cap to avoid memory blow-ups and truncating longer samples during training."
+                )
+        else:
+            print(f"Maximum token count is within seq_length cap: {args.seq_length}")
 
         # Print character to token ratio
         print(f"Character to token ratio in dataset: {chars_per_token:.2f}")
@@ -415,6 +426,16 @@ class ModelTrainer:
 
         print("Starting main loop")
 
+        if args.fp16 and args.bf16:
+            raise ValueError("Please choose only one mixed-precision mode: --fp16 or --bf16.")
+
+        if args.bf16:
+            model_torch_dtype = torch.bfloat16
+        elif args.fp16:
+            model_torch_dtype = torch.float16
+        else:
+            model_torch_dtype = None
+
         # Try to configure quantization with fallback
         try:
             print("Attempting to use 4-bit quantization...")
@@ -422,7 +443,7 @@ class ModelTrainer:
                 load_in_4bit=True,
                 bnb_4bit_use_double_quant=True,
                 bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_compute_dtype=model_torch_dtype or torch.float16,
             )
         except Exception as e:
             print(f"Error setting up BitsAndBytes quantization: {e}")
@@ -450,11 +471,13 @@ class ModelTrainer:
                             args.model_path,
                             device_map="auto",
                             quantization_config=bnb_config,
+                            dtype=model_torch_dtype,
                         )
                     else:
                         model, tokenizer = FastLanguageModel.from_pretrained(
                             args.model_path,
                             device_map="auto",
+                            dtype=model_torch_dtype,
                         )
                 except Exception as e:
                     print(f"Error loading model with Unsloth: {e}")
@@ -495,11 +518,13 @@ class ModelTrainer:
                             args.model_path,
                             device_map="auto",
                             quantization_config=bnb_config,
+                            torch_dtype=model_torch_dtype,
                         )
                     else:
                         model = AutoModelForCausalLM.from_pretrained(
                             args.model_path,
                             device_map="auto",
+                            torch_dtype=model_torch_dtype,
                         )
                 except Exception as e:
                     print(f"Error loading model with quantization: {e}")
@@ -507,6 +532,7 @@ class ModelTrainer:
                     model = AutoModelForCausalLM.from_pretrained(
                         args.model_path,
                         device_map="auto",
+                        torch_dtype=model_torch_dtype,
                     )
 
                 # Configure LoRA parameters
@@ -536,11 +562,13 @@ class ModelTrainer:
                         args.model_path,
                         device_map="auto",
                         quantization_config=bnb_config,
+                        torch_dtype=model_torch_dtype,
                     )
                 else:
                     model = AutoModelForCausalLM.from_pretrained(
                         args.model_path,
                         device_map="auto",
+                        torch_dtype=model_torch_dtype,
                     )
             except Exception as e:
                 print(f"Error loading model with quantization: {e}")
@@ -548,6 +576,7 @@ class ModelTrainer:
                 model = AutoModelForCausalLM.from_pretrained(
                     args.model_path,
                     device_map="auto",
+                    torch_dtype=model_torch_dtype,
                 )
 
             # Configure LoRA parameters
@@ -642,8 +671,9 @@ def get_args():
     parser.add_argument("--fp16", action="store_true", help="Use FP16 training")
     parser.add_argument("--bf16", action="store_true", help="Use BF16 training")
     parser.add_argument("--gradient_checkpointing", action="store_true", help="Use gradient checkpointing")
+    parser.add_argument("--auto_expand_seq_length", action="store_true", help="Allow seq_length to grow to the longest sample in the dataset")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
-    parser.add_argument("--num_workers", type=int, default=4, help="Number of worker threads for data loader")
+    parser.add_argument("--num_workers", type=int, default=0, help="Number of worker threads for data loader")
     parser.add_argument("--output_dir", type=str, default="output", help="Output directory")
     parser.add_argument("--log_freq", default=10, type=int, help="Logging frequency")
     parser.add_argument("--save_freq", default=40, type=int, help="Model saving frequency")
