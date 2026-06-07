@@ -16,7 +16,7 @@ import agentscope
 from evaluate import evaluate_poi_predictions
 from utils import *
 from agents import CustomDictDialogAgent, CustomReActAgent, CustomDialogAgent
-from parser_tool import extract_predicted_pois
+from parser_tool import extract_json_field, extract_predicted_pois
 from tool.base_tools import *
 from transformers import AutoTokenizer
 from prompt_provider import PromptProvider
@@ -25,7 +25,7 @@ from agentscope.service import ServiceToolkit
 
 
 
-def extract_and_clean_poi(prediction, top_k, max_item):
+def extract_and_clean_poi(prediction, top_k, max_item, key_name="next_poi_id", strict=True):
     """
     Extract and clean predicted POIs.
 
@@ -37,9 +37,18 @@ def extract_and_clean_poi(prediction, top_k, max_item):
     Returns:
         list: Cleaned list of POI IDs
     """
-    prediction = extract_predicted_pois(prediction, top_k)
+    prediction = extract_predicted_pois(prediction, top_k, key_name=key_name, strict=strict)
     cleaned_prediction = clean_predicted_pois(prediction, max_item)
     return cleaned_prediction
+
+
+def extract_text_field(content, key_name):
+    value = extract_json_field(content, key_name)
+    if value is None:
+        return content
+    if isinstance(value, list):
+        return " ".join(str(item) for item in value)
+    return str(value)
 
 
 def merge_valid_pois(existing_pois, new_pois, top_k):
@@ -427,7 +436,7 @@ def profiler_steps(Profiler, prompt_provider, user_id, current_trajectory, histo
     historical_profile_prompt = prompt_provider.get_a1p1_prompt(historical_trajectory)
     message_his_profile = Msg(name="Profiler", content=historical_profile_prompt, role="user")
     long_term_profile_msg = Profiler.reply(message_his_profile)
-    long_term_profile = long_term_profile_msg.content
+    long_term_profile = extract_text_field(long_term_profile_msg.content, "historical_profile")
 
     # Generate candidate POI list
     merge_profiles_prompt = prompt_provider.get_a1p2_prompt(long_term_profile)
@@ -454,7 +463,7 @@ def forecaster_steps(Forecaster, prompt_provider, user_to_candidate_map):
     short_pattern_prompt = prompt_provider.get_a2p1_prompt()
     message_short_pattern = Msg(name="Forecaster", content=short_pattern_prompt, role="user")
     short_pattern_response = Forecaster.reply(message_short_pattern)
-    short_pattern_response = short_pattern_response.content
+    short_pattern_response = extract_text_field(short_pattern_response.content, "current_profile")
 
     # Generate refined candidate list
     rag_candidates = user_to_candidate_map[prompt_provider.user_id]
@@ -520,7 +529,13 @@ def validate_and_retry_sample(args, user_id, valid_poi_ids, Final_Predictor, pro
     retry_prompt = prompt_provider.agent_retry_prompt(invalid_poi_ids)
     message_init_prediction = Msg(name="Agent3_Retry", content=retry_prompt, role="assistant")
     retry_prediction_msg = Final_Predictor.reply(message_init_prediction)
-    retried_valid_poi_ids = extract_and_clean_poi(retry_prediction_msg.content, args.top_k, max_item)
+    retried_valid_poi_ids = extract_and_clean_poi(
+        retry_prediction_msg.content,
+        args.top_k,
+        max_item,
+        key_name="next_poi_id",
+        strict=True,
+    )
 
     return retried_valid_poi_ids
 
@@ -580,11 +595,23 @@ def single_predict_save(params):
                                                              candidate_poi_list_agent2)
 
     # Process initial prediction
-    init_predicted_pois = extract_and_clean_poi(init_prediction, top_k=args.top_k, max_item=args.max_item)
+    init_predicted_pois = extract_and_clean_poi(
+        init_prediction,
+        top_k=args.top_k,
+        max_item=args.max_item,
+        key_name="next_poi_id",
+        strict=True,
+    )
     init_valid_poi_ids = merge_valid_pois(valid_poi_ids, init_predicted_pois, args.top_k)
 
     # Process final prediction
-    predicted_pois = extract_and_clean_poi(final_prediction, top_k=args.top_k, max_item=args.max_item)
+    predicted_pois = extract_and_clean_poi(
+        final_prediction,
+        top_k=args.top_k,
+        max_item=args.max_item,
+        key_name="next_poi_id",
+        strict=True,
+    )
     valid_poi_ids = merge_valid_pois(valid_poi_ids, predicted_pois, args.top_k)
 
     # Create reasoning path string
@@ -641,8 +668,13 @@ def single_predict(params):
         # Run Profiler only
         long_term_profile, candidate_poi_list_agent1 = profiler_steps(Profiler, prompt_provider, user_id,
                                                                     current_trajectory, his_summary)
-        candidate_poi_list_agent1 = extract_and_clean_poi(candidate_poi_list_agent1, top_k=args.num_candidate,
-                                                        max_item=args.max_item)
+        candidate_poi_list_agent1 = extract_and_clean_poi(
+            candidate_poi_list_agent1,
+            top_k=args.num_candidate,
+            max_item=args.max_item,
+            key_name="candidate_poi_list_from_profile",
+            strict=True,
+        )
 
         # Skip Forecaster
         short_pattern_response = 'None'
@@ -652,16 +684,26 @@ def single_predict(params):
         # Run Profiler but ignore results
         long_term_profile, candidate_poi_list_agent1 = profiler_steps(Profiler, prompt_provider, user_id,
                                                                     current_trajectory, his_summary)
-        candidate_poi_list_agent1 = extract_and_clean_poi(candidate_poi_list_agent1, top_k=args.num_candidate,
-                                                        max_item=args.max_item)
+        candidate_poi_list_agent1 = extract_and_clean_poi(
+            candidate_poi_list_agent1,
+            top_k=args.num_candidate,
+            max_item=args.max_item,
+            key_name="candidate_poi_list_from_profile",
+            strict=True,
+        )
         long_term_profile = 'None'
         candidate_poi_list_agent1 = ['0'] * args.num_candidate
 
         # Run Forecaster
         short_pattern_response, candidate_poi_list_agent2 = forecaster_steps(Forecaster, prompt_provider,
                                                                            user_to_candidate_map)
-        candidate_poi_list_agent2 = extract_and_clean_poi(candidate_poi_list_agent2, top_k=args.num_candidate,
-                                                         max_item=args.max_item)
+        candidate_poi_list_agent2 = extract_and_clean_poi(
+            candidate_poi_list_agent2,
+            top_k=args.num_candidate,
+            max_item=args.max_item,
+            key_name="refined_candidate_from_rag",
+            strict=True,
+        )
 
     elif args.ab_type == 'candidate':
         # Run Profiler
@@ -678,13 +720,23 @@ def single_predict(params):
         # Run full pipeline
         long_term_profile, candidate_poi_list_agent1 = profiler_steps(Profiler, prompt_provider, user_id,
                                                                     current_trajectory, his_summary)
-        candidate_poi_list_agent1 = extract_and_clean_poi(candidate_poi_list_agent1, top_k=args.num_candidate,
-                                                        max_item=args.max_item)
+        candidate_poi_list_agent1 = extract_and_clean_poi(
+            candidate_poi_list_agent1,
+            top_k=args.num_candidate,
+            max_item=args.max_item,
+            key_name="candidate_poi_list_from_profile",
+            strict=True,
+        )
 
         short_pattern_response, candidate_poi_list_agent2 = forecaster_steps(Forecaster, prompt_provider,
                                                                            user_to_candidate_map)
-        candidate_poi_list_agent2 = extract_and_clean_poi(candidate_poi_list_agent2, top_k=args.num_candidate,
-                                                         max_item=args.max_item)
+        candidate_poi_list_agent2 = extract_and_clean_poi(
+            candidate_poi_list_agent2,
+            top_k=args.num_candidate,
+            max_item=args.max_item,
+            key_name="refined_candidate_from_rag",
+            strict=True,
+        )
 
     # Get RAG candidates
     rag_candidates = user_to_candidate_map[user_id]
@@ -695,11 +747,23 @@ def single_predict(params):
                                                              candidate_poi_list_agent2)
 
     # Process initial prediction
-    init_predicted_pois = extract_and_clean_poi(init_prediction, top_k=args.top_k, max_item=args.max_item)
+    init_predicted_pois = extract_and_clean_poi(
+        init_prediction,
+        top_k=args.top_k,
+        max_item=args.max_item,
+        key_name="next_poi_id",
+        strict=True,
+    )
     init_valid_poi_ids = merge_valid_pois(valid_poi_ids, init_predicted_pois, args.top_k)
 
     # Process final prediction
-    predicted_pois = extract_and_clean_poi(final_prediction, top_k=args.top_k, max_item=args.max_item)
+    predicted_pois = extract_and_clean_poi(
+        final_prediction,
+        top_k=args.top_k,
+        max_item=args.max_item,
+        key_name="next_poi_id",
+        strict=True,
+    )
     valid_poi_ids = merge_valid_pois(valid_poi_ids, predicted_pois, args.top_k)
 
     # Create reasoning path string

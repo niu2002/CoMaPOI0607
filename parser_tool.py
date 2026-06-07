@@ -2,7 +2,55 @@ import re
 import json
 import logging
 
-def extract_predicted_pois(content, top_k, key_name = 'next_poi_id'):
+def _iter_json_candidates(content):
+    if isinstance(content, dict):
+        yield content
+        return
+
+    if not isinstance(content, str):
+        return
+
+    text = content.strip()
+    if text:
+        yield text
+
+    for block in re.findall(r'```(?:json)?\s*([\s\S]*?)\s*```', text, flags=re.IGNORECASE):
+        block = block.strip()
+        if block:
+            yield block
+
+
+def extract_json_field(content, key_name):
+    for candidate in _iter_json_candidates(content):
+        if isinstance(candidate, dict):
+            data = candidate
+        else:
+            try:
+                data = json.loads(candidate)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        if isinstance(data, dict) and key_name in data:
+            return data[key_name]
+
+    if isinstance(content, str):
+        list_pattern = rf'"{re.escape(key_name)}"\s*:\s*\[([^\]]*)\]'
+        list_match = re.search(list_pattern, content, flags=re.DOTALL)
+        if list_match:
+            raw_items = list_match.group(1).strip()
+            if not raw_items:
+                return []
+            return [item.strip() for item in re.split(r',\s*', raw_items) if item.strip()]
+
+        str_pattern = rf'"{re.escape(key_name)}"\s*:\s*"([\s\S]*?)"'
+        str_match = re.search(str_pattern, content, flags=re.DOTALL)
+        if str_match:
+            return str_match.group(1).strip()
+
+    return None
+
+
+def extract_predicted_pois(content, top_k, key_name='next_poi_id', strict=False):
     """
     Extract 'next_poi_id' list from response content.
     Returns at most top_k POI IDs, filtering out non-numeric data.
@@ -15,90 +63,28 @@ def extract_predicted_pois(content, top_k, key_name = 'next_poi_id'):
     Returns:
         list: List of POI IDs
     """
-    # Only print the first 100 characters of content to avoid cluttering the console
-    if isinstance(content, str) and len(content) > 100:
-        print(f"content (truncated): {content[:100]}...")
-    else:
-        print(f"content: {content}")
-
     poi_ids = []
+    extracted_value = extract_json_field(content, key_name)
+    if extracted_value is not None:
+        if not isinstance(extracted_value, list):
+            extracted_value = [extracted_value]
 
-    # Try using v2 parsing method
-    try:
-        if isinstance(content, dict):
-            content_json = content
-        else:
-            content_json = json.loads(content)
-
-        if 'next_poi_id' in content_json:
-            next_poi_ids = content_json[key_name]
-            for poi_id in next_poi_ids:
-                if isinstance(poi_id, str):
-                    match = re.search(r'\b(\d+)\b', poi_id)
-                    if match:
-                        poi_ids.append(match.group(1))
-                elif isinstance(poi_id, (int, float)):
-                    poi_ids.append(str(poi_id))
-            return poi_ids[:top_k]  # Return the first top_k valid POI IDs
-
-        else:
-            pass
-            #logging.error(f"Key {key_name} not found.")
-
-    except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
-        #logging.error(f"v2 parsing error: {e}, trying v3 parsing method.")
-
-        # Try using v3 parsing method
-        try:
-            if isinstance(content, dict):
-                content_str = json.dumps(content)
-            else:
-                content_str = content
-
-            pattern = r'"next_poi_id"\s*:\s*\[([^\]]+)\]'
-            match = re.search(pattern, content_str)
-
-            if match:
-                ids_str = match.group(1)
-                ids_list = re.split(r',\s*', ids_str)
-
-                for id_str in ids_list:
-                    # Extract numeric part
-                    num_match = re.search(r'\b(\d+)\b', id_str)
-                    if num_match:
-                        poi_ids.append(num_match.group(1))
-
-                return poi_ids[:top_k]  # Return the first top_k valid POI IDs
-
-            else:
-                # Try using v4 parsing method (markdown code block)
-                pattern = r'```(?:json)?\s*{[^}]*"next_poi_id"\s*:\s*\[([^\]]+)\][^}]*}\s*```'
-                match = re.search(pattern, content_str)
-
+        for poi_id in extracted_value:
+            if isinstance(poi_id, str):
+                match = re.search(r'\b(\d+)\b', poi_id)
                 if match:
-                    ids_str = match.group(1)
-                    ids_list = re.split(r',\s*', ids_str)
+                    poi_ids.append(match.group(1))
+            elif isinstance(poi_id, (int, float)):
+                poi_ids.append(str(int(poi_id)))
 
-                    for id_str in ids_list:
-                        # Extract numeric part
-                        num_match = re.search(r'\b(\d+)\b', id_str)
-                        if num_match:
-                            poi_ids.append(num_match.group(1))
+        return poi_ids[:top_k]
 
-                    return poi_ids[:top_k]  # Return the first top_k valid POI IDs
+    if strict:
+        return []
 
-                else:
-                    # Try using v5 parsing method (direct number extraction)
-                    numbers = re.findall(r'\b\d+\b', content_str)
-                    return numbers[:top_k]  # Return the first top_k numbers found
-
-        except Exception as e2:
-            #logging.error(f"v3 parsing error: {e2}, using fallback method.")
-
-            # Fallback method: extract all numbers
-            if isinstance(content, str):
-                numbers = re.findall(r'\b\d+\b', content)
-                return numbers[:top_k]  # Return the first top_k numbers found
+    if isinstance(content, str):
+        numbers = re.findall(r'\b\d+\b', content)
+        return numbers[:top_k]
 
     # If all methods fail, return empty list
     return poi_ids[:top_k]
