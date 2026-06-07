@@ -256,6 +256,31 @@ def build_prediction_fallback_pool(args, candidate_poi_list_agent1, candidate_po
     return fallback
 
 
+def get_rag_candidates(user_to_candidate_map, user_id):
+    """
+    Safely fetch RAG candidates for a user.
+
+    The candidate cache may be incomplete during smoke tests. In that case we
+    return an empty list instead of crashing the whole evaluation run.
+    """
+    if user_id in user_to_candidate_map:
+        return user_to_candidate_map[user_id]
+
+    user_id_str = str(user_id)
+    if user_id_str in user_to_candidate_map:
+        return user_to_candidate_map[user_id_str]
+
+    try:
+        user_id_int = int(user_id)
+        if user_id_int in user_to_candidate_map:
+            return user_to_candidate_map[user_id_int]
+    except (TypeError, ValueError):
+        pass
+
+    print(f"[WARN] Missing RAG candidates for user_id={user_id}; using empty candidate list.")
+    return []
+
+
 def init_agents(args):
     """
     Initialize the language model agents for generation tasks.
@@ -520,7 +545,7 @@ def forecaster_steps(Forecaster, prompt_provider, user_to_candidate_map):
     short_pattern_response = extract_text_field(short_pattern_response.content, "current_profile")
 
     # Generate refined candidate list
-    rag_candidates = user_to_candidate_map[prompt_provider.user_id]
+    rag_candidates = get_rag_candidates(user_to_candidate_map, prompt_provider.user_id)
     refine_candidates_prompt = prompt_provider.get_a2p2_prompt(short_pattern_response, rag_candidates)
     message_refine_candidates = Msg(name="Forecaster", content=refine_candidates_prompt, role="user")
     optimized_poi_list_msg = Forecaster.reply(message_refine_candidates)
@@ -656,7 +681,7 @@ def single_predict_save(params):
     prompt_provider = PromptProvider(args, user_id, current_trajectory)
 
     # Get RAG candidates
-    rag_candidates = user_to_candidate_map[user_id]
+    rag_candidates = get_rag_candidates(user_to_candidate_map, user_id)
     fallback_prediction_pool = []
     if args.ab_type == 'none':
         candidate_poi_list_agent1, candidate_poi_list_agent2 = normalize_agent_candidate_lists(
@@ -826,7 +851,7 @@ def single_predict(params):
         )
 
     # Get RAG candidates
-    rag_candidates = user_to_candidate_map[user_id]
+    rag_candidates = get_rag_candidates(user_to_candidate_map, user_id)
     fallback_prediction_pool = []
     if args.ab_type == 'none':
         candidate_poi_list_agent1, candidate_poi_list_agent2 = normalize_agent_candidate_lists(
