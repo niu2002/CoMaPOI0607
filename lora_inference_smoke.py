@@ -90,6 +90,8 @@ def main():
         tokenize=False,
         add_generation_prompt=True,
     )
+    response_prefix = '{"next_poi_id": '
+    prompt_text = f"{prompt_text}{response_prefix}"
 
     quantization_config = None
     if args.load_in_4bit:
@@ -135,7 +137,12 @@ def main():
     elapsed = time.time() - start_time
 
     generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
-    generated_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+    generated_suffix = tokenizer.decode(
+        generated_ids,
+        skip_special_tokens=True,
+        clean_up_tokenization_spaces=False,
+    ).strip()
+    generated_text = f"{response_prefix}{generated_suffix}"
     predicted_poi_id = maybe_extract_poi_id(generated_text)
 
     peak_mem_mb = None

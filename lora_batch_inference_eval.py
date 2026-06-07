@@ -183,6 +183,8 @@ def main():
             tokenize=False,
             add_generation_prompt=True,
         )
+        response_prefix = '{"next_poi_id": '
+        prompt_text = f"{prompt_text}{response_prefix}"
         inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
 
         print(f"\n[{sample_offset + 1}/{len(samples)}] Running sample_index={sample_index}, label={label}")
@@ -195,7 +197,12 @@ def main():
         raw_responses: list[str] = []
         for sequence in outputs:
             generated_ids = sequence[inputs["input_ids"].shape[1]:]
-            generated_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+            generated_suffix = tokenizer.decode(
+                generated_ids,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=False,
+            ).strip()
+            generated_text = f"{response_prefix}{generated_suffix}"
             raw_responses.append(generated_text)
             predicted_poi_id = extract_predicted_poi_id(generated_text)
             if predicted_poi_id != "unparsed" and predicted_poi_id not in predicted_poi_ids:
