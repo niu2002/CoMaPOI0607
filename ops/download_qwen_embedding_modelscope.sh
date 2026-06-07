@@ -16,6 +16,11 @@ from modelscope import snapshot_download
 model_id = os.environ.get("MODEL_ID", "Qwen/Qwen3-Embedding-4B")
 target_dir = os.environ.get("TARGET_DIR", "/mnt/workspace/comapoilatest/models/Qwen3-Embedding-4B")
 
-snapshot_download(model_id=model_id, local_dir=target_dir, local_dir_use_symlinks=False)
+kwargs = {"model_id": model_id, "local_dir": target_dir}
+try:
+    snapshot_download(local_dir_use_symlinks=False, **kwargs)
+except TypeError:
+    print("[download] modelscope version does not support local_dir_use_symlinks, retrying without it")
+    snapshot_download(**kwargs)
 print(f"[download] completed: {target_dir}")
 PY
