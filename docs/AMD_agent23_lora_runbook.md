@@ -38,9 +38,12 @@ git pull --ff-only origin amd
 确认依赖：
 
 ```bash
-python ./ops/check_multiagent_env.py
+if ! python ./ops/check_multiagent_env.py; then
+  bash ./ops/install_amd_deps.sh
+fi
+python -c "import trl, agentscope, openai, transformers, peft, datasets, accelerate; print('deps_ok')"
 python -m py_compile evaluate.py parser_tool.py prompt_provider.py inference_forward_new.py ops/analyze_forward_results.py
-bash -n ops/train_agent2_agent3_amd.sh ops/serve_agent2_agent3_amd.sh ops/run_forward_101_agent23_amd.sh
+bash -n ops/train_agent2_agent3_amd.sh ops/serve_agent2_agent3_amd.sh ops/run_forward_101_agent23_amd.sh ops/install_amd_deps.sh
 ```
 
 构建 101 条候选：

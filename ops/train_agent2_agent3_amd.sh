@@ -77,7 +77,10 @@ train_one_agent() {
   echo "[agent23-train] training $agent_type"
   echo "[agent23-train] expected adapter path: $adapter_path"
 
-  AGENT_TYPE="$agent_type" RESUME_FROM_CHECKPOINT="$resume_value" "$SCRIPT_DIR/run_amd_agent.sh"
+  if ! AGENT_TYPE="$agent_type" RESUME_FROM_CHECKPOINT="$resume_value" "$SCRIPT_DIR/run_amd_agent.sh"; then
+    echo "[agent23-train] $agent_type training failed; fix the error above, then rerun this script."
+    exit 1
+  fi
 
   if [[ ! -d "$adapter_path" ]]; then
     echo "[agent23-train] expected adapter path not found after training: $adapter_path"
