@@ -58,9 +58,54 @@ python ./ops/build_candidates_amd.py \
   --embedding_batch_size 4
 ```
 
+生成 agent 微调训练数据：
+
+先启动 base vLLM 服务：
+
+```bash
+pkill -f "vllm.entrypoints.openai.api_server" || true
+MODEL_ROOT=/mnt/workspace/comapoilatest/models \
+MODEL_NAME=Llama-3.1-8B-Instruct \
+SERVED_MODEL_NAME=llama3.1-8b \
+PORT=7863 \
+bash ./ops/serve_agents_amd.sh
+
+sleep 30
+curl -m 5 -sS http://127.0.0.1:7863/v1/models
+```
+
+再生成 `finetune/data/ca/agent1/2/3_train_samples.jsonl`：
+
+```bash
+MODEL_ROOT=/mnt/workspace/comapoilatest/models \
+SERVED_MODEL_NAME=llama3.1-8b \
+DATASET=ca \
+MODE=train \
+PORT=7863 \
+INVERSE_WORKERS=1 \
+INVERSE_NUM_SAMPLES=0 \
+bash ./ops/prepare_agent_training_data_amd.sh
+```
+
+如果只是检查流程能不能通，可以先用小样本：
+
+```bash
+MODEL_ROOT=/mnt/workspace/comapoilatest/models \
+SERVED_MODEL_NAME=llama3.1-8b \
+DATASET=ca \
+MODE=train \
+PORT=7863 \
+INVERSE_WORKERS=1 \
+INVERSE_NUM_SAMPLES=101 \
+FORCE_AGENT_DATA=1 \
+bash ./ops/prepare_agent_training_data_amd.sh
+```
+
 训练 agent2 + agent3：
 
 ```bash
+pkill -f "vllm.entrypoints.openai.api_server" || true
+
 MODEL_ROOT=/mnt/workspace/comapoilatest/models \
 MODEL_NAME=Llama-3.1-8B-Instruct \
 DATASET=ca \

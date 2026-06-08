@@ -42,7 +42,7 @@ def init_agents(args):
             "model_name": f"{args.api_type}",
             "api_key": "EMPTY",
             "client_args": {
-                "base_url": "http://localhost:7863/v1"
+                "base_url": f"http://localhost:{args.port}/v1"
             },
             "generate_args": {
                 "temperature": 0.5,
@@ -57,7 +57,7 @@ def init_agents(args):
             "model_name": f"{args.api_type}",
             "api_key": "EMPTY",
             "client_args": {
-                "base_url": "http://localhost:7863/v1"
+                "base_url": f"http://localhost:{args.port}/v1"
             },
             "generate_args": {
                 "temperature": 0.2,
@@ -829,6 +829,7 @@ def main():
     parser.add_argument('--batch_size', type=int, default=32, help='Number of concurrent processes')
     parser.add_argument('--mode', type=str, default='train', help='Mode (train/test)')
     parser.add_argument('--save_id', type=str, default='N1', help='Save ID (N1-N...; T1-T...; C1-C...)')
+    parser.add_argument('--port', type=int, default=7863, help='OpenAI-compatible API server port')
 
     args = parser.parse_args()
     dataset = args.dataset

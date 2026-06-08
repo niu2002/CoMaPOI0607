@@ -22,6 +22,8 @@ export SAVE_FREQ="${SAVE_FREQ:-50}"
 export SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-3}"
 export TRAIN_AGENT2="${TRAIN_AGENT2:-1}"
 export TRAIN_AGENT3="${TRAIN_AGENT3:-1}"
+export REQUIRE_AGENT_DATA="${REQUIRE_AGENT_DATA:-1}"
+export KILL_VLLM_BEFORE_TRAIN="${KILL_VLLM_BEFORE_TRAIN:-1}"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 PATH_ENV_FILE="${PATH_ENV_FILE:-$PROJECT_ROOT/finetune/results/$OP_STR/sft-$DATASET/agent23_paths.env}"
@@ -97,6 +99,31 @@ echo "[agent23-train] op_str=$OP_STR"
 echo "[agent23-train] batch_size=$BATCH_SIZE"
 echo "[agent23-train] max_steps=$MAX_STEPS"
 echo "[agent23-train] save_freq=$SAVE_FREQ"
+
+if [[ "$KILL_VLLM_BEFORE_TRAIN" == "1" ]]; then
+  if pgrep -f "vllm.entrypoints.openai.api_server" >/dev/null 2>&1; then
+    echo "[agent23-train] stopping vLLM before training to free GPU memory"
+    pkill -f "vllm.entrypoints.openai.api_server" || true
+    sleep 3
+  fi
+fi
+
+if [[ "$REQUIRE_AGENT_DATA" == "1" ]]; then
+  missing_agent_data=()
+  for agent_type in agent2 agent3; do
+    agent_data_file="$PROJECT_ROOT/finetune/data/$DATASET/${agent_type}_train_samples.jsonl"
+    if [[ ! -s "$agent_data_file" ]]; then
+      missing_agent_data+=("$agent_data_file")
+    fi
+  done
+  if (( ${#missing_agent_data[@]} > 0 )); then
+    echo "[agent23-train] missing agent training data:"
+    printf '  %s\n' "${missing_agent_data[@]}"
+    echo "[agent23-train] prepare them first with:"
+    echo "  bash ./ops/prepare_agent_training_data_amd.sh"
+    exit 1
+  fi
+fi
 
 if [[ "$TRAIN_AGENT2" == "1" ]]; then
   train_one_agent "agent2" "RESUME_AGENT2_FROM_CHECKPOINT"
