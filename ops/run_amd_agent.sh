@@ -23,6 +23,7 @@ LOG_FREQ="${LOG_FREQ:-5}"
 SAVE_FREQ="${SAVE_FREQ:-10}"
 SAVE_TOTAL_LIMIT="${SAVE_TOTAL_LIMIT:-3}"
 RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-}"
+AGENT_TEST_SIZE="${AGENT_TEST_SIZE:-100}"
 
 if [[ "$AGENT_TYPE" != "agent1" && "$AGENT_TYPE" != "agent2" && "$AGENT_TYPE" != "agent3" ]]; then
   echo "[train-agent] AGENT_TYPE must be one of: agent1, agent2, agent3"
@@ -54,6 +55,7 @@ exec "$PYTHON_BIN" "$PROJECT_ROOT/finetune_sft_new.py" \
   --save_freq "$SAVE_FREQ" \
   --save_total_limit "$SAVE_TOTAL_LIMIT" \
   --type "$AGENT_TYPE" \
+  --agent_test_size "$AGENT_TEST_SIZE" \
   --op_str "$OP_STR" \
   --device_map "$DEVICE_MAP" \
   --resume_from_checkpoint "$RESUME_FROM_CHECKPOINT" \

@@ -111,8 +111,25 @@ MODEL_NAME=Llama-3.1-8B-Instruct \
 DATASET=ca \
 OP_STR=amd-agent23-ca-v1 \
 BATCH_SIZE=16 \
+AGENT_TEST_SIZE=100 \
 SAVE_FREQ=50 \
 SAVE_TOTAL_LIMIT=3 \
+bash ./ops/train_agent2_agent3_amd.sh
+```
+
+如果只生成了 101 条逆向数据做小实验，建议用 10 条作为 holdout：
+
+```bash
+MODEL_ROOT=/mnt/workspace/comapoilatest/models \
+MODEL_NAME=Llama-3.1-8B-Instruct \
+DATASET=ca \
+OP_STR=amd-agent23-101-ts10 \
+BATCH_SIZE=16 \
+MAX_STEPS=-1 \
+AGENT_TEST_SIZE=10 \
+FORCE_REPROCESS_AGENT_DATA=1 \
+SAVE_FREQ=10 \
+SAVE_TOTAL_LIMIT=2 \
 bash ./ops/train_agent2_agent3_amd.sh
 ```
 

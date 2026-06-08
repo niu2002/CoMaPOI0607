@@ -24,6 +24,8 @@ export TRAIN_AGENT2="${TRAIN_AGENT2:-1}"
 export TRAIN_AGENT3="${TRAIN_AGENT3:-1}"
 export REQUIRE_AGENT_DATA="${REQUIRE_AGENT_DATA:-1}"
 export KILL_VLLM_BEFORE_TRAIN="${KILL_VLLM_BEFORE_TRAIN:-1}"
+export AGENT_TEST_SIZE="${AGENT_TEST_SIZE:-100}"
+export FORCE_REPROCESS_AGENT_DATA="${FORCE_REPROCESS_AGENT_DATA:-0}"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 PATH_ENV_FILE="${PATH_ENV_FILE:-$PROJECT_ROOT/finetune/results/$OP_STR/sft-$DATASET/agent23_paths.env}"
@@ -99,6 +101,7 @@ echo "[agent23-train] op_str=$OP_STR"
 echo "[agent23-train] batch_size=$BATCH_SIZE"
 echo "[agent23-train] max_steps=$MAX_STEPS"
 echo "[agent23-train] save_freq=$SAVE_FREQ"
+echo "[agent23-train] agent_test_size=$AGENT_TEST_SIZE"
 
 if [[ "$KILL_VLLM_BEFORE_TRAIN" == "1" ]]; then
   if pgrep -f "vllm.entrypoints.openai.api_server" >/dev/null 2>&1; then
@@ -123,6 +126,15 @@ if [[ "$REQUIRE_AGENT_DATA" == "1" ]]; then
     echo "  bash ./ops/prepare_agent_training_data_amd.sh"
     exit 1
   fi
+fi
+
+if [[ "$FORCE_REPROCESS_AGENT_DATA" == "1" ]]; then
+  echo "[agent23-train] removing cached split files before reprocessing agent data"
+  rm -f \
+    "$PROJECT_ROOT/finetune/data/$DATASET/agent2_train_samples_train_ts${AGENT_TEST_SIZE}.jsonl" \
+    "$PROJECT_ROOT/finetune/data/$DATASET/agent2_train_samples_holdout_ts${AGENT_TEST_SIZE}.jsonl" \
+    "$PROJECT_ROOT/finetune/data/$DATASET/agent3_train_samples_train_ts${AGENT_TEST_SIZE}.jsonl" \
+    "$PROJECT_ROOT/finetune/data/$DATASET/agent3_train_samples_holdout_ts${AGENT_TEST_SIZE}.jsonl"
 fi
 
 if [[ "$TRAIN_AGENT2" == "1" ]]; then

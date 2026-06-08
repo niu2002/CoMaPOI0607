@@ -47,6 +47,7 @@ SAVE_NAME="bs${BATCH_SIZE}-gas${GRAD_ACC}-ms${MAX_STEPS}-merged-lr${LEARNING_RAT
 DEFAULT_ADAPTER_PATH="$PROJECT_ROOT/finetune/results/$OP_STR/sft-$DATASET/$SAVE_NAME"
 ADAPTER_PATH="${ADAPTER_PATH:-$DEFAULT_ADAPTER_PATH}"
 RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-}"
+AGENT_TEST_SIZE="${AGENT_TEST_SIZE:-100}"
 
 if [ "$RESUME_FROM_CHECKPOINT" = "latest" ]; then
   latest_checkpoint="$(find "$DEFAULT_ADAPTER_PATH" -maxdepth 1 -type d -name 'checkpoint-*' | sort -V | tail -n 1 || true)"
@@ -91,6 +92,7 @@ case "$MODE" in
       --save_freq "$SAVE_FREQ" \
       --save_total_limit "$SAVE_TOTAL_LIMIT" \
       --type merged \
+      --agent_test_size "$AGENT_TEST_SIZE" \
       --op_str "$OP_STR" \
       --device_map "$DEVICE_MAP" \
       --resume_from_checkpoint "$RESUME_FROM_CHECKPOINT" \

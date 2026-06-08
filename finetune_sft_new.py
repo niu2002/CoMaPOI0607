@@ -688,6 +688,7 @@ def get_args():
     parser.add_argument("--save_name", default="sft_training", type=str, help="Save name")
     parser.add_argument("--agent_id", default=3, type=int, help="Agent ID number")
     parser.add_argument("--type", default='merged', type=str, help="Training type (merged, agent1, agent2, agent3)")
+    parser.add_argument("--agent_test_size", type=int, default=100, help="Holdout size when splitting generated agent SFT data")
     parser.add_argument("--unsloth", action="store_true", help="Use Unsloth acceleration (single GPU only, not compatible with phi3.5)")
     parser.add_argument('--op_str', type=str, default='4-14', help='Operation string for output directory naming')
     parser.add_argument("--resume_from_checkpoint", type=str, default="", help="Checkpoint path to resume training from")
@@ -721,23 +722,28 @@ def main():
         args.data_path = str(explicit_data_path)
         print(f"Using explicit training file: {args.data_path}")
 
+    agent_test_size = max(0, int(args.agent_test_size))
+
     # Process data based on agent type
+    if args.data_path:
+        pass
+
     elif args.type == 'agent1':
-        cleaned_train_file_path = str(finetune_data_root / "agent1_train_samples_all.jsonl")
-        cleaned_test_file_path = str(finetune_data_root / "agent1_train_samples_100.jsonl")
-        DataProcessor.check_and_process_files(agent1_path, cleaned_train_file_path, cleaned_test_file_path, test_size=100)
+        cleaned_train_file_path = str(finetune_data_root / f"agent1_train_samples_train_ts{agent_test_size}.jsonl")
+        cleaned_test_file_path = str(finetune_data_root / f"agent1_train_samples_holdout_ts{agent_test_size}.jsonl")
+        DataProcessor.check_and_process_files(agent1_path, cleaned_train_file_path, cleaned_test_file_path, test_size=agent_test_size)
         args.data_path = cleaned_train_file_path
 
     elif args.type == 'agent2':
-        cleaned_train_file_path = str(finetune_data_root / "agent2_train_samples_all.jsonl")
-        cleaned_test_file_path = str(finetune_data_root / "agent2_train_samples_100.jsonl")
-        DataProcessor.check_and_process_files(agent2_path, cleaned_train_file_path, cleaned_test_file_path, test_size=100)
+        cleaned_train_file_path = str(finetune_data_root / f"agent2_train_samples_train_ts{agent_test_size}.jsonl")
+        cleaned_test_file_path = str(finetune_data_root / f"agent2_train_samples_holdout_ts{agent_test_size}.jsonl")
+        DataProcessor.check_and_process_files(agent2_path, cleaned_train_file_path, cleaned_test_file_path, test_size=agent_test_size)
         args.data_path = cleaned_train_file_path
 
     elif args.type == 'agent3':
-        cleaned_train_file_path = str(finetune_data_root / "agent3_train_samples_all.jsonl")
-        cleaned_test_file_path = str(finetune_data_root / "agent3_train_samples_100.jsonl")
-        DataProcessor.check_and_process_files(agent3_path, cleaned_train_file_path, cleaned_test_file_path, test_size=100)
+        cleaned_train_file_path = str(finetune_data_root / f"agent3_train_samples_train_ts{agent_test_size}.jsonl")
+        cleaned_test_file_path = str(finetune_data_root / f"agent3_train_samples_holdout_ts{agent_test_size}.jsonl")
+        DataProcessor.check_and_process_files(agent3_path, cleaned_train_file_path, cleaned_test_file_path, test_size=agent_test_size)
         args.data_path = cleaned_train_file_path
 
     elif args.type == 'merged':
@@ -745,9 +751,9 @@ def main():
         # Merge long-term profiles (from agent1), short-term profiles (from agent2), and agent3's reverse inference fine-tuning data
         DataProcessor.merge_agent_files(agent1_path, agent2_path, agent3_path, merged_file_path)
 
-        cleaned_train_file_path = str(finetune_data_root / "cleaned_total_agent_train_samples_all.jsonl")
-        cleaned_test_file_path = str(finetune_data_root / "cleaned_total_agent_train_samples_100.jsonl")
-        DataProcessor.check_and_process_files(merged_file_path, cleaned_train_file_path, cleaned_test_file_path, test_size=100)
+        cleaned_train_file_path = str(finetune_data_root / f"cleaned_total_agent_train_samples_train_ts{agent_test_size}.jsonl")
+        cleaned_test_file_path = str(finetune_data_root / f"cleaned_total_agent_train_samples_holdout_ts{agent_test_size}.jsonl")
+        DataProcessor.check_and_process_files(merged_file_path, cleaned_train_file_path, cleaned_test_file_path, test_size=agent_test_size)
         args.data_path = cleaned_train_file_path
 
     else:
