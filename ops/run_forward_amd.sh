@@ -10,11 +10,12 @@ PORT="${PORT:-7863}"
 MODE="${MODE:-test}"
 NUM_SAMPLES="${NUM_SAMPLES:-10}"
 START_POINT="${START_POINT:-0}"
-TOP_K="${TOP_K:-5}"
+TOP_K="${TOP_K:-10}"
 NUM_CANDIDATE="${NUM_CANDIDATE:-25}"
 FORWARD_WORKERS="${FORWARD_WORKERS:-1}"
 TEST_INTERVAL="${TEST_INTERVAL:-10}"
 OP_STR="${OP_STR:-amd-forward-smoke}"
+PROFILE_MAX_TOKENS="${PROFILE_MAX_TOKENS:-220}"
 
 BASE_API_NAME="${BASE_API_NAME:-llama3.1-8b}"
 AGENT1_API="${AGENT1_API:-$BASE_API_NAME}"
@@ -57,6 +58,7 @@ exec "$PYTHON_BIN" "$PROJECT_ROOT/inference_forward_new.py" \
   --agent1_max_tokens "$AGENT1_MAX_TOKENS" \
   --agent2_max_tokens "$AGENT2_MAX_TOKENS" \
   --agent3_max_tokens "$AGENT3_MAX_TOKENS" \
+  --profile_max_tokens "$PROFILE_MAX_TOKENS" \
   --temperature "$TEMPERATURE" \
   --top_p "$TOP_P" \
   --op_str "$OP_STR" \

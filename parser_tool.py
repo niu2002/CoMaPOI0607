@@ -64,18 +64,22 @@ def extract_predicted_pois(content, top_k, key_name='next_poi_id', strict=False)
         list: List of POI IDs
     """
     poi_ids = []
+    if isinstance(content, list):
+        for poi_id in content:
+            normalized = _normalize_poi_value(poi_id)
+            if normalized is not None:
+                poi_ids.append(normalized)
+        return poi_ids[:top_k]
+
     extracted_value = extract_json_field(content, key_name)
     if extracted_value is not None:
         if not isinstance(extracted_value, list):
             extracted_value = [extracted_value]
 
         for poi_id in extracted_value:
-            if isinstance(poi_id, str):
-                match = re.search(r'\b(\d+)\b', poi_id)
-                if match:
-                    poi_ids.append(match.group(1))
-            elif isinstance(poi_id, (int, float)):
-                poi_ids.append(str(int(poi_id)))
+            normalized = _normalize_poi_value(poi_id)
+            if normalized is not None:
+                poi_ids.append(normalized)
 
         return poi_ids[:top_k]
 
@@ -88,6 +92,41 @@ def extract_predicted_pois(content, top_k, key_name='next_poi_id', strict=False)
 
     # If all methods fail, return empty list
     return poi_ids[:top_k]
+
+
+def _normalize_poi_value(value):
+    """Normalize one JSON value into a POI ID string without accepting placeholders."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return str(int(value))
+    if not isinstance(value, str):
+        return None
+
+    text = value.strip()
+    if text.isdigit():
+        return text
+
+    if re.match(r'^\d{4}-\d{1,2}-\d{1,2}\b', text) or re.match(r'^\d{1,2}:\d{2}(?::\d{2})?\b', text):
+        return None
+
+    if re.search(r'\b\d+(?:st|nd|rd|th)\s+unique\s+ID\b', text, flags=re.IGNORECASE):
+        return None
+
+    leading_id = re.match(r'^\s*(\d+)\s*(?:$|\(|,|:)', text)
+    if leading_id:
+        return leading_id.group(1)
+
+    poi_match = re.search(r'\b(?:POI\s*)?ID\s*[:#-]?\s*(\d+)\b', text, flags=re.IGNORECASE)
+    if poi_match:
+        return poi_match.group(1)
+
+    # Accept strings like "POI 123" or "#123" only when they contain a single number.
+    numbers = re.findall(r'\b\d+\b', text)
+    if len(numbers) == 1 and re.search(r'\bPOI\b|#', text, flags=re.IGNORECASE):
+        return numbers[0]
+
+    return None
 
 
 def extract_json_from_markdown(text):

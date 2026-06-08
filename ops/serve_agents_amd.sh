@@ -36,27 +36,51 @@ base_cmd=(
   --disable-log-stats
 )
 
-if [[ -n "$AGENT1_ADAPTER_PATH" && -n "$AGENT2_ADAPTER_PATH" && -n "$AGENT3_ADAPTER_PATH" ]]; then
-  echo "[serve] enabling LoRA adapters for agent1/agent2/agent3"
+lora_modules=()
+agent1_api="$SERVED_MODEL_NAME"
+agent2_api="$SERVED_MODEL_NAME"
+agent3_api="$SERVED_MODEL_NAME"
+
+add_lora_module() {
+  local agent_name="$1"
+  local adapter_path="$2"
+  if [[ -z "$adapter_path" ]]; then
+    echo "[serve] $agent_name uses base model: $SERVED_MODEL_NAME"
+    return
+  fi
+  if [[ ! -d "$adapter_path" ]]; then
+    echo "[serve] adapter path for $agent_name not found: $adapter_path"
+    exit 1
+  fi
+  echo "[serve] $agent_name uses LoRA adapter: $adapter_path"
+  lora_modules+=("$agent_name=$adapter_path")
+  case "$agent_name" in
+    agent1) agent1_api="agent1" ;;
+    agent2) agent2_api="agent2" ;;
+    agent3) agent3_api="agent3" ;;
+  esac
+}
+
+add_lora_module "agent1" "$AGENT1_ADAPTER_PATH"
+add_lora_module "agent2" "$AGENT2_ADAPTER_PATH"
+add_lora_module "agent3" "$AGENT3_ADAPTER_PATH"
+
+if (( ${#lora_modules[@]} > 0 )); then
+  echo "[serve] enabling LoRA adapters: ${lora_modules[*]}"
   base_cmd+=(
     --enable-lora
     --max-loras "$MAX_LORAS"
     --lora-modules
-    "agent1=$AGENT1_ADAPTER_PATH"
-    "agent2=$AGENT2_ADAPTER_PATH"
-    "agent3=$AGENT3_ADAPTER_PATH"
+    "${lora_modules[@]}"
   )
-  echo "[serve] forward run should use:"
-  echo "  AGENT1_API=agent1"
-  echo "  AGENT2_API=agent2"
-  echo "  AGENT3_API=agent3"
 else
-  echo "[serve] adapter paths not fully provided, serving base model only"
-  echo "[serve] forward smoke can still run with:"
-  echo "  AGENT1_API=$SERVED_MODEL_NAME"
-  echo "  AGENT2_API=$SERVED_MODEL_NAME"
-  echo "  AGENT3_API=$SERVED_MODEL_NAME"
+  echo "[serve] no adapter paths provided, serving base model only"
 fi
+
+echo "[serve] forward run should use:"
+echo "  AGENT1_API=$agent1_api"
+echo "  AGENT2_API=$agent2_api"
+echo "  AGENT3_API=$agent3_api"
 
 echo "[serve] log_file=$LOG_FILE"
 echo "[serve] model_path=$MODEL_PATH"

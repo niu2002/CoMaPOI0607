@@ -12,6 +12,9 @@ class PromptProvider:
     def _json_block(schema: str) -> str:
         return f"```json\n{schema}\n```"
 
+    def _profile_token_limit(self) -> int:
+        return int(getattr(self.args, "profile_max_tokens", 220))
+
     def _json_only_rules(self, key_name: str, exact_count: int | None = None, restrict_to_candidates: bool = False):
         rules = [
             "Return exactly one JSON object in exactly one fenced ```json code block.",
@@ -34,14 +37,14 @@ class PromptProvider:
             "User": f"User ID:{self.user_id}",
             "INPUT": f"User's historical trajectory data: {historical_distribution}",
             "STEPS": [
-                "Time Distribution Analysis: Identify active time periods (e.g., morning, afternoon, evening).",
-                "Spatial Distribution Analysis: Determine frequently visited geographic areas (e.g., city center, suburbs).",
-                "Category Distribution Analysis: Analyze the distribution of POI categories visited (e.g., restaurants, supermarkets, entertainment venues).",
-                "Summary: Summarize the user's long-term profile based on the analyses above."
+                "Identify only predictive long-term signals: recurring time windows, stable areas, favorite categories, and repeated high-signal POIs.",
+                "Compress the result into a concise profile that helps rank the next POI.",
+                "Do not copy raw trajectory dates, coordinates, or step-by-step reasoning."
             ],
             "IMPORTANT": self._json_only_rules("historical_profile") + [
-                "The profile text must stay within 500 tokens.",
+                f"The profile text must stay within {self._profile_token_limit()} tokens.",
                 "Put the full profile summary in a single string value, not a list.",
+                "Prefer compact clauses separated by semicolons.",
             ],
             "OUTPUT_FORMAT": system_prompt_format,
         }
@@ -85,15 +88,14 @@ class PromptProvider:
             "User": f"User ID:{self.user_id}",
             "INPUT": f"User's current trajectory: {self.current_trajectory}",
             "STEPS": [
-                "1. Analyze the time pattern in the current trajectory (e.g., time of day, day of week).",
-                "2. Analyze the spatial pattern (e.g., geographic area, distance between POIs).",
-                "3. Analyze the category pattern (e.g., types of POIs visited).",
-                "4. Identify any specific needs or intentions based on the trajectory (e.g., shopping, dining, entertainment).",
-                "5. Summarize the user's short-term mobility profile based on the analyses above."
+                "1. Identify only predictive short-term signals: latest location trend, time context, category intent, and repeated recent POIs.",
+                "2. Compress the result into a concise profile that helps rank the next POI.",
+                "3. Do not copy raw trajectory dates, coordinates, or step-by-step reasoning."
             ],
             "IMPORTANT": self._json_only_rules("current_profile") + [
-                "The profile text must stay within 500 tokens.",
+                f"The profile text must stay within {self._profile_token_limit()} tokens.",
                 "Put the full profile summary in a single string value, not a list.",
+                "Prefer compact clauses separated by semicolons.",
             ],
             "OUTPUT_FORMAT": system_prompt_format,
         }

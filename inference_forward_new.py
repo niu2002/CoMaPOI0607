@@ -10,6 +10,7 @@ import os
 import time
 import re
 import traceback
+from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import agentscope
@@ -100,10 +101,19 @@ def parse_reasoning_path(json_file_path, user_id):
         if not user_data or 'reasoning_path' not in user_data:
             raise ValueError(f"User ID {user_id} not found in JSON file or missing reasoning_path.")
 
-        # Get reasoning_path
         reasoning_path = user_data['reasoning_path']
 
-        # Extract content
+        if isinstance(reasoning_path, dict):
+            long_term_profile = reasoning_path.get("long_term_profile", {})
+            short_term_profile = reasoning_path.get("short_term_profile", {})
+            candidates = reasoning_path.get("candidates", {})
+            return (
+                long_term_profile.get("raw") or long_term_profile.get("parsed_profile"),
+                short_term_profile.get("raw") or short_term_profile.get("parsed_profile"),
+                candidates.get("agent1_top25", []),
+                candidates.get("agent2_top25", []),
+            )
+
         reasoning_data = {
             "long_term_profile": None,
             "short_pattern_response": None,
@@ -117,11 +127,16 @@ def parse_reasoning_path(json_file_path, user_id):
             short_pattern_response_start = reasoning_path.find("short_pattern_response:")
             candidate_poi_list_agent1_start = reasoning_path.find("candidate_poi_list_agent1:")
             candidate_poi_list_agent2_start = reasoning_path.find("candidate_poi_list_agent2:")
+            final_prediction_start = reasoning_path.find(", final_prediction:")
 
-            reasoning_data["long_term_profile"] = reasoning_path[long_term_profile_start:short_pattern_response_start].replace("long_term_profile: ", "").strip()
-            reasoning_data["short_pattern_response"] = reasoning_path[short_pattern_response_start:candidate_poi_list_agent1_start].replace("short_pattern_response: ", "").strip()
-            reasoning_data["candidate_poi_list_agent1"] = reasoning_path[candidate_poi_list_agent1_start:candidate_poi_list_agent2_start].replace("candidate_poi_list_agent1: ", "").strip()
-            reasoning_data["candidate_poi_list_agent2"] = reasoning_path[candidate_poi_list_agent2_start:].replace("candidate_poi_list_agent2: ", "").strip()
+            if min(long_term_profile_start, short_pattern_response_start, candidate_poi_list_agent1_start, candidate_poi_list_agent2_start) < 0:
+                raise ValueError("missing expected reasoning_path markers")
+
+            candidate2_end = final_prediction_start if final_prediction_start >= 0 else len(reasoning_path)
+            reasoning_data["long_term_profile"] = reasoning_path[long_term_profile_start:short_pattern_response_start].replace("long_term_profile: ", "").strip().rstrip(",")
+            reasoning_data["short_pattern_response"] = reasoning_path[short_pattern_response_start:candidate_poi_list_agent1_start].replace("short_pattern_response: ", "").strip().rstrip(",")
+            reasoning_data["candidate_poi_list_agent1"] = reasoning_path[candidate_poi_list_agent1_start:candidate_poi_list_agent2_start].replace("candidate_poi_list_agent1: ", "").strip().rstrip(",")
+            reasoning_data["candidate_poi_list_agent2"] = reasoning_path[candidate_poi_list_agent2_start:candidate2_end].replace("candidate_poi_list_agent2: ", "").strip().rstrip(",")
         except Exception as parse_error:
             raise ValueError(f"Error parsing reasoning_path: {parse_error}")
 
@@ -279,6 +294,206 @@ def get_rag_candidates(user_to_candidate_map, user_id):
 
     print(f"[WARN] Missing RAG candidates for user_id={user_id}; using empty candidate list.")
     return []
+
+
+def normalize_poi_ids(values, max_item=None):
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        values = [values]
+
+    normalized = []
+    seen = set()
+    for value in values:
+        try:
+            poi_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if max_item is not None and not (1 <= poi_id <= max_item):
+            continue
+        poi_id = str(poi_id)
+        if poi_id not in seen:
+            seen.add(poi_id)
+            normalized.append(poi_id)
+    return normalized
+
+
+def union_poi_ids(*sources):
+    merged = []
+    seen = set()
+    for source in sources:
+        for poi_id in normalize_poi_ids(source):
+            if poi_id not in seen:
+                seen.add(poi_id)
+                merged.append(poi_id)
+    return merged
+
+
+def prediction_parse_status(raw_response, parsed_pois, expected_count, fallback_used=False):
+    if fallback_used:
+        return "fallback"
+    if len(parsed_pois) == expected_count:
+        return "ok"
+    if parsed_pois:
+        return "partial"
+    if raw_response in (None, "", []):
+        return "missing"
+    return "empty"
+
+
+def build_structured_reasoning(args, long_term_profile, short_pattern_response, rag_candidates,
+                               candidate_poi_list_agent1, candidate_poi_list_agent2,
+                               init_prediction, init_valid_poi_ids, init_fallback_used,
+                               final_prediction, valid_poi_ids, final_fallback_used):
+    agent1_candidates = normalize_poi_ids(candidate_poi_list_agent1, args.max_item)
+    agent2_candidates = normalize_poi_ids(candidate_poi_list_agent2, args.max_item)
+    rag_candidate_ids = normalize_poi_ids(rag_candidates, args.max_item)
+
+    return {
+        "long_term_profile": {
+            "raw": long_term_profile,
+            "parsed_profile": extract_text_field(long_term_profile, "historical_profile"),
+        },
+        "short_term_profile": {
+            "raw": short_pattern_response,
+            "parsed_profile": extract_text_field(short_pattern_response, "current_profile"),
+        },
+        "candidates": {
+            "rag_top100": rag_candidate_ids[:100],
+            "agent1_top25": agent1_candidates[:args.num_candidate],
+            "agent2_top25": agent2_candidates[:args.num_candidate],
+            "candidate_union": union_poi_ids(agent1_candidates, agent2_candidates),
+        },
+        "initial_prediction": {
+            "raw": init_prediction,
+            "parsed_top_k": normalize_poi_ids(init_valid_poi_ids, args.max_item)[:args.top_k],
+            "parse_status": prediction_parse_status(
+                init_prediction,
+                init_valid_poi_ids,
+                args.top_k,
+                fallback_used=init_fallback_used,
+            ),
+        },
+        "final_prediction": {
+            "raw": final_prediction,
+            "parsed_top_k": normalize_poi_ids(valid_poi_ids, args.max_item)[:args.top_k],
+            "parse_status": prediction_parse_status(
+                final_prediction,
+                valid_poi_ids,
+                args.top_k,
+                fallback_used=final_fallback_used,
+            ),
+        },
+    }
+
+
+def extract_reasoning_candidates(reasoning_path):
+    if isinstance(reasoning_path, dict):
+        candidates = reasoning_path.get("candidates", {})
+        return {
+            "rag": normalize_poi_ids(candidates.get("rag_top100", [])),
+            "agent1": normalize_poi_ids(candidates.get("agent1_top25", [])),
+            "agent2": normalize_poi_ids(candidates.get("agent2_top25", [])),
+            "union": normalize_poi_ids(candidates.get("candidate_union", [])),
+        }
+
+    if not isinstance(reasoning_path, str):
+        return {"rag": [], "agent1": [], "agent2": [], "union": []}
+
+    def extract_after(marker, next_marker=None):
+        start = reasoning_path.find(marker)
+        if start < 0:
+            return []
+        start += len(marker)
+        end = reasoning_path.find(next_marker, start) if next_marker else len(reasoning_path)
+        if end < 0:
+            end = len(reasoning_path)
+        return re.findall(r"\b\d+\b", reasoning_path[start:end])
+
+    agent1 = extract_after("candidate_poi_list_agent1:", "candidate_poi_list_agent2:")
+    agent2 = extract_after("candidate_poi_list_agent2:", "final_prediction:")
+    return {
+        "rag": [],
+        "agent1": normalize_poi_ids(agent1),
+        "agent2": normalize_poi_ids(agent2),
+        "union": union_poi_ids(agent1, agent2),
+    }
+
+
+def write_prediction_diagnostics(args, predictions, user_to_candidate_map, output_file, metrics=None):
+    total = len(predictions)
+    length_distribution = Counter()
+    parse_status_counts = Counter()
+    recall_counts = Counter()
+    predicted_from_union = 0
+    predicted_total = 0
+
+    for sample in predictions:
+        user_id = sample.get("user_id")
+        label = str(sample.get("label"))
+        predicted = normalize_poi_ids(sample.get("predicted_poi_ids", []), args.max_item)
+        length_distribution[str(len(predicted))] += 1
+
+        reasoning_path = sample.get("reasoning_path", {})
+        if isinstance(reasoning_path, dict):
+            status = reasoning_path.get("final_prediction", {}).get("parse_status", "unknown")
+        else:
+            status = "legacy_string"
+        parse_status_counts[status] += 1
+
+        candidates = extract_reasoning_candidates(reasoning_path)
+        rag_candidates = normalize_poi_ids(get_rag_candidates(user_to_candidate_map, user_id), args.max_item)
+        if not candidates["rag"]:
+            candidates["rag"] = rag_candidates[:100]
+
+        if label in candidates["rag"]:
+            recall_counts["rag_top100"] += 1
+        if label in candidates["agent1"]:
+            recall_counts["agent1_top25"] += 1
+        if label in candidates["agent2"]:
+            recall_counts["agent2_top25"] += 1
+        if label in set(candidates["agent1"]) | set(candidates["agent2"]):
+            recall_counts["agent1_or_agent2"] += 1
+
+        union_candidates = set(candidates["union"])
+        for poi_id in predicted:
+            predicted_total += 1
+            if poi_id in union_candidates:
+                predicted_from_union += 1
+
+    def rate(count):
+        return round(count / total * 100, 4) if total else 0.0
+
+    diagnostics = {
+        "total_samples": total,
+        "top_k": args.top_k,
+        "num_candidate": args.num_candidate,
+        "prediction_length_distribution": dict(sorted(length_distribution.items(), key=lambda item: int(item[0]))),
+        "top_k_complete": {
+            "count": length_distribution.get(str(args.top_k), 0),
+            "rate": rate(length_distribution.get(str(args.top_k), 0)),
+        },
+        "parse_status_counts": dict(parse_status_counts),
+        "candidate_recall": {
+            "rag_top100": {"hits": recall_counts["rag_top100"], "rate": rate(recall_counts["rag_top100"])},
+            "agent1_top25": {"hits": recall_counts["agent1_top25"], "rate": rate(recall_counts["agent1_top25"])},
+            "agent2_top25": {"hits": recall_counts["agent2_top25"], "rate": rate(recall_counts["agent2_top25"])},
+            "agent1_or_agent2": {"hits": recall_counts["agent1_or_agent2"], "rate": rate(recall_counts["agent1_or_agent2"])},
+        },
+        "predicted_from_candidate_union": {
+            "count": predicted_from_union,
+            "total_predictions": predicted_total,
+            "rate": round(predicted_from_union / predicted_total * 100, 4) if predicted_total else 0.0,
+        },
+    }
+    if metrics is not None:
+        diagnostics["metrics"] = metrics
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(diagnostics, f, ensure_ascii=False, indent=2)
+
+    print(f"[INFO] Diagnostics saved to: {output_file}")
+    return diagnostics
 
 
 def init_agents(args):
@@ -710,7 +925,9 @@ def single_predict_save(params):
         key_name="next_poi_id",
         strict=True,
     )
+    init_fallback_used = False
     if not init_predicted_pois and fallback_prediction_pool:
+        init_fallback_used = True
         init_predicted_pois = fallback_prediction_pool[:args.top_k]
     init_valid_poi_ids = merge_valid_pois(valid_poi_ids, init_predicted_pois, args.top_k)
 
@@ -722,12 +939,26 @@ def single_predict_save(params):
         key_name="next_poi_id",
         strict=True,
     )
+    final_fallback_used = False
     if not predicted_pois and fallback_prediction_pool:
+        final_fallback_used = True
         predicted_pois = fallback_prediction_pool[:args.top_k]
     valid_poi_ids = merge_valid_pois(valid_poi_ids, predicted_pois, args.top_k)
 
-    # Create reasoning path string
-    reasoning_path = f"long_term_profile: {long_term_profile}, short_pattern_response: {short_pattern_response}, candidate_poi_list_agent1: [{candidate_poi_list_agent1}], candidate_poi_list_agent2: [{candidate_poi_list_agent2}], final_prediction: {final_prediction}"
+    reasoning_path = build_structured_reasoning(
+        args,
+        long_term_profile,
+        short_pattern_response,
+        rag_candidates,
+        candidate_poi_list_agent1,
+        candidate_poi_list_agent2,
+        init_prediction,
+        init_valid_poi_ids,
+        init_fallback_used,
+        final_prediction,
+        valid_poi_ids,
+        final_fallback_used,
+    )
 
     return user_id, label, valid_poi_ids[:args.top_k], init_valid_poi_ids[:args.top_k], reasoning_path
 
@@ -880,7 +1111,9 @@ def single_predict(params):
         key_name="next_poi_id",
         strict=True,
     )
+    init_fallback_used = False
     if not init_predicted_pois and fallback_prediction_pool:
+        init_fallback_used = True
         init_predicted_pois = fallback_prediction_pool[:args.top_k]
     init_valid_poi_ids = merge_valid_pois(valid_poi_ids, init_predicted_pois, args.top_k)
 
@@ -892,12 +1125,26 @@ def single_predict(params):
         key_name="next_poi_id",
         strict=True,
     )
+    final_fallback_used = False
     if not predicted_pois and fallback_prediction_pool:
+        final_fallback_used = True
         predicted_pois = fallback_prediction_pool[:args.top_k]
     valid_poi_ids = merge_valid_pois(valid_poi_ids, predicted_pois, args.top_k)
 
-    # Create reasoning path string
-    reasoning_path = f"long_term_profile: {long_term_profile}, short_pattern_response: {short_pattern_response}, candidate_poi_list_agent1: [{candidate_poi_list_agent1}], candidate_poi_list_agent2: [{candidate_poi_list_agent2}], final_prediction: {final_prediction}"
+    reasoning_path = build_structured_reasoning(
+        args,
+        long_term_profile,
+        short_pattern_response,
+        rag_candidates,
+        candidate_poi_list_agent1,
+        candidate_poi_list_agent2,
+        init_prediction,
+        init_valid_poi_ids,
+        init_fallback_used,
+        final_prediction,
+        valid_poi_ids,
+        final_fallback_used,
+    )
 
     return user_id, label, valid_poi_ids[:args.top_k], init_valid_poi_ids[:args.top_k], reasoning_path
 
@@ -950,6 +1197,7 @@ class ForwardInferenceProcessor:
         output_json = f'{results_path}/poi_predictions.json'
         metrics_txt = f'{results_path}/metrics.txt'
         metrics_csv = f'{results_path}/metrics.csv'
+        diagnostics_json = f'{results_path}/diagnostics.json'
 
         candidate_output_json = data_path + f"/{args.dataset}_{args.mode}_candidates.jsonl"
 
@@ -1006,8 +1254,15 @@ class ForwardInferenceProcessor:
                 with open(interim_output_json, 'w', encoding='utf-8') as f:
                     json.dump(list(all_predictions.values()), f, ensure_ascii=False, indent=4)
 
-                # Evaluate interim results
-                evaluate_poi_predictions(args, interim_output_json, top_k, metrics_txt, metrics_csv, key='predicted_poi_ids')
+                metrics = evaluate_poi_predictions(args, interim_output_json, top_k, metrics_txt, metrics_csv, key='predicted_poi_ids')
+                interim_diagnostics_json = f'{results_path}/interim_diagnostics_{len(all_predictions)}.json'
+                write_prediction_diagnostics(
+                    args,
+                    list(all_predictions.values()),
+                    user_to_candidate_map,
+                    interim_diagnostics_json,
+                    metrics=metrics,
+                )
 
         # Run prediction.
         if args.batch_size <= 1:
@@ -1035,8 +1290,14 @@ class ForwardInferenceProcessor:
             json.dump(list(all_predictions.values()), f, ensure_ascii=False, indent=4)
         print(f"[INFO] All final prediction results saved to: {output_json}")
 
-        # Final evaluation
-        evaluate_poi_predictions(args, output_json, top_k, metrics_txt, metrics_csv, key='predicted_poi_ids')
+        metrics = evaluate_poi_predictions(args, output_json, top_k, metrics_txt, metrics_csv, key='predicted_poi_ids')
+        write_prediction_diagnostics(
+            args,
+            list(all_predictions.values()),
+            user_to_candidate_map,
+            diagnostics_json,
+            metrics=metrics,
+        )
         print("[INFO] Final evaluation metrics saved.")
 
         return output_json
@@ -1069,6 +1330,7 @@ def main():
     parser.add_argument('--agent1_max_tokens', type=int, default=256, help='Max tokens for Agent 1')
     parser.add_argument('--agent2_max_tokens', type=int, default=256, help='Max tokens for Agent 2')
     parser.add_argument('--agent3_max_tokens', type=int, default=256, help='Max tokens for Agent 3')
+    parser.add_argument('--profile_max_tokens', type=int, default=220, help='Target token budget for white-box profile summaries')
     parser.add_argument('--sub_file', type=str, default='ablation', help='Sub-directory for results')
     parser.add_argument('--load_pf_output', action="store_true", help='Load pre-generated profiles')
     parser.add_argument('--saved_results_path', type=str, default='none', help='Path to saved results')
