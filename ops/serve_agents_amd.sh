@@ -12,6 +12,9 @@ GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.85}"
 MAX_LORAS="${MAX_LORAS:-3}"
 LOG_FILE="${LOG_FILE:-/tmp/comapoi-vllm-agents.log}"
 BACKGROUND="${BACKGROUND:-1}"
+WAIT_FOR_READY="${WAIT_FOR_READY:-1}"
+WAIT_TIMEOUT="${WAIT_TIMEOUT:-300}"
+WAIT_INTERVAL="${WAIT_INTERVAL:-5}"
 
 AGENT1_ADAPTER_PATH="${AGENT1_ADAPTER_PATH:-}"
 AGENT2_ADAPTER_PATH="${AGENT2_ADAPTER_PATH:-}"
@@ -65,6 +68,17 @@ add_lora_module "agent1" "$AGENT1_ADAPTER_PATH"
 add_lora_module "agent2" "$AGENT2_ADAPTER_PATH"
 add_lora_module "agent3" "$AGENT3_ADAPTER_PATH"
 
+expected_models=("$SERVED_MODEL_NAME")
+if [[ "$agent1_api" != "$SERVED_MODEL_NAME" ]]; then
+  expected_models+=("$agent1_api")
+fi
+if [[ "$agent2_api" != "$SERVED_MODEL_NAME" ]]; then
+  expected_models+=("$agent2_api")
+fi
+if [[ "$agent3_api" != "$SERVED_MODEL_NAME" ]]; then
+  expected_models+=("$agent3_api")
+fi
+
 if (( ${#lora_modules[@]} > 0 )); then
   echo "[serve] enabling LoRA adapters: ${lora_modules[*]}"
   base_cmd+=(
@@ -86,10 +100,55 @@ echo "[serve] log_file=$LOG_FILE"
 echo "[serve] model_path=$MODEL_PATH"
 echo "[serve] port=$PORT"
 
+wait_for_models() {
+  EXPECTED_MODELS="$(printf '%s\n' "${expected_models[@]}")" \
+  WAIT_TIMEOUT="$WAIT_TIMEOUT" \
+  WAIT_INTERVAL="$WAIT_INTERVAL" \
+  HOST="$HOST" \
+  PORT="$PORT" \
+  "$PYTHON_BIN" - <<'PY'
+import json
+import os
+import sys
+import time
+import urllib.request
+
+host = os.environ["HOST"]
+port = os.environ["PORT"]
+wait_timeout = int(os.environ["WAIT_TIMEOUT"])
+wait_interval = int(os.environ["WAIT_INTERVAL"])
+expected_models = [line.strip() for line in os.environ["EXPECTED_MODELS"].splitlines() if line.strip()]
+url = f"http://{host}:{port}/v1/models"
+deadline = time.time() + wait_timeout
+last_error = None
+
+while time.time() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        model_ids = [item.get("id") for item in payload.get("data", [])]
+        missing = [model for model in expected_models if model not in model_ids]
+        if not missing:
+            print(f"[serve] ready models: {model_ids}")
+            sys.exit(0)
+        last_error = f"missing models: {missing}; available: {model_ids}"
+    except Exception as exc:
+        last_error = str(exc)
+    time.sleep(wait_interval)
+
+print(f"[serve] service did not become ready at {url} within {wait_timeout}s: {last_error}", file=sys.stderr)
+sys.exit(1)
+PY
+}
+
 if [[ "$BACKGROUND" == "1" ]]; then
   nohup "${base_cmd[@]}" >"$LOG_FILE" 2>&1 &
   echo "[serve] started background pid=$!"
   echo "[serve] tail -f $LOG_FILE"
+  if [[ "$WAIT_FOR_READY" == "1" ]]; then
+    echo "[serve] waiting for models: ${expected_models[*]}"
+    wait_for_models
+  fi
 else
   exec "${base_cmd[@]}"
 fi

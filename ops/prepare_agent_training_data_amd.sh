@@ -17,6 +17,8 @@ export EMBEDDING_BATCH_SIZE="${EMBEDDING_BATCH_SIZE:-4}"
 export INVERSE_NUM_SAMPLES="${INVERSE_NUM_SAMPLES:-0}"
 export INVERSE_START_POINT="${INVERSE_START_POINT:-0}"
 export INVERSE_WORKERS="${INVERSE_WORKERS:-1}"
+export NUM_CANDIDATE="${NUM_CANDIDATE:-25}"
+export PROFILE_MAX_TOKENS="${PROFILE_MAX_TOKENS:-220}"
 export FORCE_CANDIDATES="${FORCE_CANDIDATES:-0}"
 export FORCE_AGENT_DATA="${FORCE_AGENT_DATA:-0}"
 
@@ -114,7 +116,9 @@ echo "[prepare-agent-data] inverse_num_samples=$INVERSE_NUM_SAMPLES start=$INVER
   --port "$PORT" \
   --num_samples "$INVERSE_NUM_SAMPLES" \
   --start_point "$INVERSE_START_POINT" \
-  --batch_size "$INVERSE_WORKERS"
+  --batch_size "$INVERSE_WORKERS" \
+  --num_candidate "$NUM_CANDIDATE" \
+  --profile_max_tokens "$PROFILE_MAX_TOKENS"
 
 for output_file in "$agent1_file" "$agent2_file" "$agent3_file"; do
   if [[ ! -s "$output_file" ]]; then

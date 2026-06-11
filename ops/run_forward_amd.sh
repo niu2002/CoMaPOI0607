@@ -21,6 +21,9 @@ BASE_API_NAME="${BASE_API_NAME:-llama3.1-8b}"
 AGENT1_API="${AGENT1_API:-$BASE_API_NAME}"
 AGENT2_API="${AGENT2_API:-$BASE_API_NAME}"
 AGENT3_API="${AGENT3_API:-$BASE_API_NAME}"
+WAIT_FOR_MODELS="${WAIT_FOR_MODELS:-1}"
+WAIT_TIMEOUT="${WAIT_TIMEOUT:-300}"
+WAIT_INTERVAL="${WAIT_INTERVAL:-5}"
 
 TEMPERATURE="${TEMPERATURE:-0.0}"
 TOP_P="${TOP_P:-1.0}"
@@ -40,6 +43,45 @@ echo "[forward] port=$PORT"
 echo "[forward] agent1_api=$AGENT1_API"
 echo "[forward] agent2_api=$AGENT2_API"
 echo "[forward] agent3_api=$AGENT3_API"
+
+if [[ "$WAIT_FOR_MODELS" == "1" ]]; then
+  EXPECTED_MODELS="$(printf '%s\n' "$AGENT1_API" "$AGENT2_API" "$AGENT3_API" | awk '!seen[$0]++')" \
+  WAIT_TIMEOUT="$WAIT_TIMEOUT" \
+  WAIT_INTERVAL="$WAIT_INTERVAL" \
+  PORT="$PORT" \
+  "$PYTHON_BIN" - <<'PY'
+import json
+import os
+import sys
+import time
+import urllib.request
+
+port = os.environ["PORT"]
+wait_timeout = int(os.environ["WAIT_TIMEOUT"])
+wait_interval = int(os.environ["WAIT_INTERVAL"])
+expected_models = [line.strip() for line in os.environ["EXPECTED_MODELS"].splitlines() if line.strip()]
+url = f"http://127.0.0.1:{port}/v1/models"
+deadline = time.time() + wait_timeout
+last_error = None
+
+while time.time() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        model_ids = [item.get("id") for item in payload.get("data", [])]
+        missing = [model for model in expected_models if model not in model_ids]
+        if not missing:
+            print(f"[forward] confirmed service models: {model_ids}")
+            break
+        last_error = f"missing models: {missing}; available: {model_ids}"
+    except Exception as exc:
+        last_error = str(exc)
+    time.sleep(wait_interval)
+else:
+    print(f"[forward] service did not become ready at {url} within {wait_timeout}s: {last_error}", file=sys.stderr)
+    sys.exit(1)
+PY
+fi
 
 exec "$PYTHON_BIN" "$PROJECT_ROOT/inference_forward_new.py" \
   --dataset "$DATASET" \

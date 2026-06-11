@@ -24,6 +24,108 @@ from agentscope.message import Msg
 from agentscope.service import ServiceToolkit
 
 
+POLLUTED_CONTEXT_IDS = set(str(year) for year in range(2000, 2027)) | {
+    "25",  # Frequently leaked from "generate 25 candidates".
+    "37", "38", "121", "122",  # Frequent latitude/longitude fragments in CA data.
+}
+
+
+def _normalize_poi_id(value, max_item):
+    try:
+        poi_id = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if 1 <= poi_id <= max_item:
+        return str(poi_id)
+    return None
+
+
+def _ordered_unique(values, max_item):
+    unique = []
+    seen = set()
+    for value in values or []:
+        poi_id = _normalize_poi_id(value, max_item)
+        if poi_id is None or poi_id in seen:
+            continue
+        unique.append(poi_id)
+        seen.add(poi_id)
+    return unique
+
+
+def _label_insert_position(label, user_id, subtrajectory_id, max_position):
+    if max_position <= 0:
+        return 0
+    try:
+        seed_value = int(label) + int(user_id) * 17 + int(subtrajectory_id or 0) * 31
+    except (TypeError, ValueError):
+        seed_value = 0
+    return seed_value % max_position
+
+
+def build_clean_candidate_list(raw_candidates, *, label, fallback_candidates, max_item, target_length,
+                               user_id, subtrajectory_id, allowed_candidates=None, keep_label=True):
+    """
+    Clean generated candidate IDs before writing SFT data.
+
+    The inverse generator often leaks prompt numbers such as 25, years, times, or
+    coordinates. We keep model-generated IDs only when they are valid and either
+    come from the allowed pool or are not obvious context artifacts.
+    """
+    label_id = _normalize_poi_id(label, max_item)
+    allowed = set(_ordered_unique(allowed_candidates, max_item)) if allowed_candidates is not None else None
+    fallback = _ordered_unique(fallback_candidates, max_item)
+
+    cleaned = []
+    seen = set()
+    for poi_id in _ordered_unique(raw_candidates, max_item):
+        if poi_id == label_id:
+            continue
+        if allowed is not None and poi_id not in allowed:
+            continue
+        if poi_id in POLLUTED_CONTEXT_IDS and (allowed is None or poi_id not in allowed):
+            continue
+        if poi_id not in seen:
+            cleaned.append(poi_id)
+            seen.add(poi_id)
+
+    for poi_id in fallback:
+        if poi_id == label_id:
+            continue
+        if allowed is not None and poi_id not in allowed:
+            continue
+        if poi_id not in seen:
+            cleaned.append(poi_id)
+            seen.add(poi_id)
+        if len(cleaned) >= target_length:
+            break
+
+    if keep_label and label_id:
+        max_position = min(5, target_length)
+        insert_at = _label_insert_position(label_id, user_id, subtrajectory_id, max_position)
+        cleaned = [poi_id for poi_id in cleaned if poi_id != label_id]
+        cleaned.insert(insert_at, label_id)
+
+    return cleaned[:target_length]
+
+
+def build_final_topk_target(label, candidate_poi_list_agent1, candidate_poi_list_agent2,
+                            rag_candidates, *, max_item, top_k, user_id, subtrajectory_id):
+    label_id = _normalize_poi_id(label, max_item)
+    pool = _ordered_unique(
+        list(candidate_poi_list_agent1 or []) + list(candidate_poi_list_agent2 or []) + list(rag_candidates or []),
+        max_item,
+    )
+    pool = [poi_id for poi_id in pool if poi_id != label_id]
+    insert_at = _label_insert_position(label_id, user_id, subtrajectory_id, min(3, top_k)) if label_id else 0
+    if label_id:
+        pool.insert(insert_at, label_id)
+    return pool[:top_k]
+
+
+def json_content(key, value):
+    return json.dumps({key: value}, ensure_ascii=False)
+
+
 # Helper functions for multiprocessing
 def init_agents(args):
     """
@@ -418,8 +520,15 @@ def single_predict_worker(params):
         p2 = inverse_prompter.get_a1p2_prompt(o1)
         o2 = generate_by_agent(generator_value, p2)
         o2 = extract_and_clean_poi(o2, top_k=25, max_item=args.max_item)
-        o2 = complete_candidate_poi_list(o2, rag_candidates, label, target_length=25)
-        o2 = ensure_label_first(o2, label)
+        o2 = build_clean_candidate_list(
+            o2,
+            label=label,
+            fallback_candidates=rag_candidates,
+            max_item=args.max_item,
+            target_length=args.num_candidate,
+            user_id=user_id,
+            subtrajectory_id=subtrajectory_id,
+        )
 
         # Generate recent mobility analysis
         p3 = inverse_prompter.get_a2p1_prompt()
@@ -430,8 +539,16 @@ def single_predict_worker(params):
         p4 = inverse_prompter.get_a2p2_prompt(o3, rag_candidates)
         o4 = generate_by_agent(generator_value, p4)
         o4 = extract_and_clean_poi(o4, top_k=25, max_item=args.max_item)
-        o4 = complete_candidate_poi_list(o4, rag_candidates, label, target_length=25)
-        o4 = ensure_label_first(o4, label)
+        o4 = build_clean_candidate_list(
+            o4,
+            label=label,
+            fallback_candidates=rag_candidates,
+            max_item=args.max_item,
+            target_length=args.num_candidate,
+            user_id=user_id,
+            subtrajectory_id=subtrajectory_id,
+            allowed_candidates=list(rag_candidates) + [label],
+        )
 
         # Generate negative POI list
         p5 = inverse_prompter.get_a3p1_prompt(o1, o3, o2, o4)
@@ -453,7 +570,7 @@ def single_predict_worker(params):
         prompts_list = [p1, p2, p3, p4, p5]
         outputs_list = [o1, o2, o3, o4, o5]
 
-        return user_id, subtrajectory_id, label, current_trajectory, prompts_list, forward_prompts_list, outputs_list
+        return user_id, subtrajectory_id, label, current_trajectory, prompts_list, forward_prompts_list, outputs_list, rag_candidates
     except Exception as e:
         # Log error and re-raise
         raise
@@ -576,7 +693,6 @@ class InverseInferenceProcessor:
         with open(input_json_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        # Initialize lists for each JSONL file
         entries1 = []
         entries2 = []
         entries3 = []
@@ -585,64 +701,88 @@ class InverseInferenceProcessor:
             user_id = entry['user_id']
             subtrajectory_id = entry['subtrajectory_id']
             label = entry['label']
-            prompts_list = entry['forward_prompts_list']
             outputs_list = entry['outputs_list']
+            current_trajectory = entry.get("current_trajectory", "")
+            rag_candidates = entry.get("rag_candidates", [])
 
-            # Extract prompts and outputs
-            p1, p2, p3, p4, p5 = prompts_list[:5]
+            # Extract generated intermediate outputs.
             o1, o2, o3, o4, o5 = outputs_list[:5]
+            o2 = build_clean_candidate_list(
+                o2,
+                label=label,
+                fallback_candidates=rag_candidates,
+                max_item=self.args.max_item,
+                target_length=self.args.num_candidate,
+                user_id=user_id,
+                subtrajectory_id=subtrajectory_id,
+            )
+            o4 = build_clean_candidate_list(
+                o4,
+                label=label,
+                fallback_candidates=rag_candidates,
+                max_item=self.args.max_item,
+                target_length=self.args.num_candidate,
+                user_id=user_id,
+                subtrajectory_id=subtrajectory_id,
+                allowed_candidates=list(rag_candidates) + [label],
+            )
+            final_topk = build_final_topk_target(
+                label,
+                o2,
+                o4,
+                rag_candidates,
+                max_item=self.args.max_item,
+                top_k=self.args.top_k,
+                user_id=user_id,
+                subtrajectory_id=subtrajectory_id,
+            )
 
-            # Function to convert outputs to strings if they are lists
-            def output_to_string(output):
-                if isinstance(output, list):
-                    # Join list elements into a string
-                    return ', '.join(output)
-                else:
-                    return str(output)
+            prompt_args = self.args
+            prompt_provider = PromptProvider(prompt_args, user_id, current_trajectory)
 
-            # Convert outputs to strings
-            o1 = output_to_string(o1)
-            o2 = output_to_string(o2)
-            o3 = output_to_string(o3)
-            o4 = output_to_string(o4)
-
-            # Create entries for the first JSONL file
-            for prompt, output in zip([p1, p2], [o1, o2]):
-                user_content = f"user_id: {user_id}, subtrajectory_id: {subtrajectory_id}\n{prompt}"
-                assistant_content = output
-                entry_dict = {
+            entries1.extend([
+                {
                     "messages": [
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": str(user_content)},
-                        {"role": "assistant", "content": str(assistant_content)}
+                        {"role": "system", "content": "You are a user profiler. Return only valid JSON."},
+                        {"role": "user", "content": prompt_provider.get_a1p1_prompt("Generated historical summary is unavailable in SFT export.")},
+                        {"role": "assistant", "content": json_content("historical_profile", str(o1 or "").strip())},
                     ]
-                }
-                entries1.append(entry_dict)
-
-            # Create entries for the second JSONL file
-            for prompt, output in zip([p3, p4], [o3, o4]):
-                user_content = f"user_id: {user_id}, subtrajectory_id: {subtrajectory_id}\n{prompt}"
-                assistant_content = output
-                entry_dict = {
+                },
+                {
                     "messages": [
-                        {"role": "system", "content": "You are a helpful assistant."},
-                        {"role": "user", "content": str(user_content)},
-                        {"role": "assistant", "content": str(assistant_content)}
+                        {"role": "system", "content": "You are a POI candidate generator. Return only valid JSON."},
+                        {"role": "user", "content": prompt_provider.get_a1p2_prompt(str(o1 or "").strip())},
+                        {"role": "assistant", "content": json_content("candidate_poi_list_from_profile", o2)},
                     ]
-                }
-                entries2.append(entry_dict)
+                },
+            ])
 
-            # Create entry for the third JSONL file
-            user_content3 = f"For User_id: {user_id}, Subtrajectory_id: {subtrajectory_id}\n{p5}"
-            assistant_content3 = label  # Assuming label is already a string
-            entry_dict3 = {
+            # Agent2 is trained on the same two tasks it performs during forward inference:
+            # concise current_profile generation and RAG candidate refinement.
+            entries2.extend([
+                {
+                    "messages": [
+                        {"role": "system", "content": "You are a mobility pattern analyzer. Return only valid JSON."},
+                        {"role": "user", "content": prompt_provider.get_a2p1_prompt()},
+                        {"role": "assistant", "content": json_content("current_profile", str(o3 or "").strip())},
+                    ]
+                },
+                {
+                    "messages": [
+                        {"role": "system", "content": "You are a POI candidate generator. Return only valid JSON."},
+                        {"role": "user", "content": prompt_provider.get_a2p2_prompt(str(o3 or "").strip(), rag_candidates)},
+                        {"role": "assistant", "content": json_content("refined_candidate_from_rag", o4)},
+                    ]
+                },
+            ])
+
+            entries3.append({
                 "messages": [
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": str(user_content3)},
-                    {"role": "assistant", "content": str(assistant_content)}
+                    {"role": "system", "content": "You are a POI ranker. Return only valid JSON."},
+                    {"role": "user", "content": prompt_provider.get_a3p1_prompt(str(o1 or "").strip(), str(o3 or "").strip(), o2, o4)},
+                    {"role": "assistant", "content": json_content("next_poi_id", final_topk)},
                 ]
-            }
-            entries3.append(entry_dict3)
+            })
 
         # Shuffle entries for the first JSONL file
         random.shuffle(entries1)
@@ -789,7 +929,7 @@ class InverseInferenceProcessor:
 
             # Use green progress bar with tqdm
             for future in tqdm(as_completed(futures), total=len(futures), desc="Generating data", colour="green"):
-                user_id, subtrajectory_id, label, current_trajectory, prompts_list, forward_prompts_list, outputs_list = future.result()
+                user_id, subtrajectory_id, label, current_trajectory, prompts_list, forward_prompts_list, outputs_list, rag_candidates = future.result()
 
                 unique_key = f"U_{user_id}_S_{subtrajectory_id}"
                 generated_informations[unique_key] = {
@@ -799,7 +939,8 @@ class InverseInferenceProcessor:
                     "current_trajectory": current_trajectory,
                     "prompts_list": prompts_list,
                     "forward_prompts_list": forward_prompts_list,
-                    "outputs_list": outputs_list
+                    "outputs_list": outputs_list,
+                    "rag_candidates": rag_candidates,
                 }
 
         # Save results
@@ -830,6 +971,8 @@ def main():
     parser.add_argument('--mode', type=str, default='train', help='Mode (train/test)')
     parser.add_argument('--save_id', type=str, default='N1', help='Save ID (N1-N...; T1-T...; C1-C...)')
     parser.add_argument('--port', type=int, default=7863, help='OpenAI-compatible API server port')
+    parser.add_argument('--num_candidate', type=int, default=25, help='Number of candidate POIs for agent candidate generation')
+    parser.add_argument('--profile_max_tokens', type=int, default=220, help='Maximum profile length guidance for aligned prompts')
 
     args = parser.parse_args()
     dataset = args.dataset
