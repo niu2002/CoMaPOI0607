@@ -16,6 +16,14 @@ FORWARD_WORKERS="${FORWARD_WORKERS:-1}"
 TEST_INTERVAL="${TEST_INTERVAL:-10}"
 OP_STR="${OP_STR:-amd-forward-smoke}"
 PROFILE_MAX_TOKENS="${PROFILE_MAX_TOKENS:-220}"
+CANDIDATE_FUSION_STRATEGY="${CANDIDATE_FUSION_STRATEGY:-none}"
+FUSED_CANDIDATE_TOP_K="${FUSED_CANDIDATE_TOP_K:-50}"
+RRF_K="${RRF_K:-60}"
+RRF_WEIGHTS="${RRF_WEIGHTS:-}"
+HISTORY_CANDIDATE_K="${HISTORY_CANDIDATE_K:-30}"
+GEO_CANDIDATE_K="${GEO_CANDIDATE_K:-50}"
+CATEGORY_CANDIDATE_K="${CATEGORY_CANDIDATE_K:-50}"
+POPULAR_CANDIDATE_K="${POPULAR_CANDIDATE_K:-50}"
 
 BASE_API_NAME="${BASE_API_NAME:-llama3.1-8b}"
 AGENT1_API="${AGENT1_API:-$BASE_API_NAME}"
@@ -43,6 +51,8 @@ echo "[forward] port=$PORT"
 echo "[forward] agent1_api=$AGENT1_API"
 echo "[forward] agent2_api=$AGENT2_API"
 echo "[forward] agent3_api=$AGENT3_API"
+echo "[forward] candidate_fusion_strategy=$CANDIDATE_FUSION_STRATEGY"
+echo "[forward] fused_candidate_top_k=$FUSED_CANDIDATE_TOP_K"
 
 if [[ "$WAIT_FOR_MODELS" == "1" ]]; then
   EXPECTED_MODELS="$(printf '%s\n' "$AGENT1_API" "$AGENT2_API" "$AGENT3_API" | awk '!seen[$0]++')" \
@@ -101,6 +111,14 @@ exec "$PYTHON_BIN" "$PROJECT_ROOT/inference_forward_new.py" \
   --agent2_max_tokens "$AGENT2_MAX_TOKENS" \
   --agent3_max_tokens "$AGENT3_MAX_TOKENS" \
   --profile_max_tokens "$PROFILE_MAX_TOKENS" \
+  --candidate_fusion_strategy "$CANDIDATE_FUSION_STRATEGY" \
+  --fused_candidate_top_k "$FUSED_CANDIDATE_TOP_K" \
+  --rrf_k "$RRF_K" \
+  --rrf_weights "$RRF_WEIGHTS" \
+  --history_candidate_k "$HISTORY_CANDIDATE_K" \
+  --geo_candidate_k "$GEO_CANDIDATE_K" \
+  --category_candidate_k "$CATEGORY_CANDIDATE_K" \
+  --popular_candidate_k "$POPULAR_CANDIDATE_K" \
   --temperature "$TEMPERATURE" \
   --top_p "$TOP_P" \
   --op_str "$OP_STR" \

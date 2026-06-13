@@ -135,7 +135,8 @@ class PromptProvider:
         }
         return json.dumps(prompt_data, indent=2)
 
-    def get_a3p1_prompt(self, long_term_profile, short_term_profile, candidate_poi_list_agent1, candidate_poi_list_agent2):
+    def get_a3p1_prompt(self, long_term_profile, short_term_profile, candidate_poi_list_agent1, candidate_poi_list_agent2,
+                        fused_candidate_poi_list=None):
         id_list = [f"\"{i + 1}th unique ID\"" for i in range(self.args.top_k)]
         id_list[0] = "\"best unique ID\""
         id_list_str = ", ".join(id_list)
@@ -152,17 +153,18 @@ class PromptProvider:
             "Short-Term Mobility Profile": short_term_profile,
             "Candidate POIs from Profile Analysis": candidate_poi_list_agent1,
             "Candidate POIs from Mobility Analysis": candidate_poi_list_agent2,
+            "Fused Candidate POIs": fused_candidate_poi_list or [],
             "STEPS": [
                 "1. Analyze the long-term profile to understand the user's general preferences and patterns.",
                 "2. Analyze the short-term mobility profile to understand the user's current context and needs.",
-                "3. Review both candidate POI lists.",
-                "4. Combine insights from all sources to identify the most likely POIs.",
+                "3. Review the profile, mobility, and fused candidate POI lists.",
+                "4. Combine insights from all sources to identify the most likely POIs. If fused candidates are provided, use them as the primary candidate pool.",
                 f"5. Rank and select the top {self.args.top_k} POIs the user is most likely to visit next.",
                 "6. Ensure the first POI ID in your list is the most likely one."
             ],
             "IMPORTANT": self._json_only_rules("next_poi_id", exact_count=self.args.top_k) + [
                 "Balance long-term preferences with short-term context.",
-                "Strongly prioritize POI IDs from the provided candidate lists.",
+                "Strongly prioritize POI IDs from the provided candidate lists, especially the fused candidate list when it is non-empty.",
                 "Provide only numeric POI IDs, not years, dates, times, coordinates, ranks, or explanations.",
                 "Ensure all IDs are unique positive integers.",
             ],

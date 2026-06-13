@@ -59,6 +59,7 @@ def extract_legacy_candidates(reasoning: str) -> dict[str, list[str]]:
         "rag": [],
         "agent1": agent1,
         "agent2": agent2,
+        "fused": [],
         "union": normalize_poi_ids(agent1 + agent2),
     }
 
@@ -68,16 +69,18 @@ def extract_candidates(reasoning: Any) -> dict[str, list[str]]:
         candidates = reasoning.get("candidates", {})
         agent1 = normalize_poi_ids(candidates.get("agent1_top25", []))
         agent2 = normalize_poi_ids(candidates.get("agent2_top25", []))
-        union = normalize_poi_ids(candidates.get("candidate_union", agent1 + agent2))
+        fused = normalize_poi_ids(candidates.get("fused_top", []))
+        union = normalize_poi_ids(candidates.get("candidate_union", agent1 + agent2) + fused)
         return {
             "rag": normalize_poi_ids(candidates.get("rag_top100", [])),
             "agent1": agent1,
             "agent2": agent2,
+            "fused": fused,
             "union": union,
         }
     if isinstance(reasoning, str):
         return extract_legacy_candidates(reasoning)
-    return {"rag": [], "agent1": [], "agent2": [], "union": []}
+    return {"rag": [], "agent1": [], "agent2": [], "fused": [], "union": []}
 
 
 def parse_status(reasoning: Any) -> str:
@@ -154,6 +157,8 @@ def analyze(predictions: Iterable[dict[str, Any]], top_ks: tuple[int, ...]) -> d
             candidate_hits["agent2_top25"] += 1
         if label in set(candidates["agent1"]) | set(candidates["agent2"]):
             candidate_hits["agent1_or_agent2"] += 1
+        if label in candidates["fused"]:
+            candidate_hits["fused_top"] += 1
 
         union = set(candidates["union"])
         for poi_id in predicted:
@@ -178,7 +183,7 @@ def analyze(predictions: Iterable[dict[str, Any]], top_ks: tuple[int, ...]) -> d
                 "hits": candidate_hits[name],
                 "rate": percentage(candidate_hits[name] / total) if total else 0.0,
             }
-            for name in ("rag_top100", "agent1_top25", "agent2_top25", "agent1_or_agent2")
+            for name in ("rag_top100", "agent1_top25", "agent2_top25", "agent1_or_agent2", "fused_top")
         },
         "predicted_from_candidate_union": {
             "hits": predicted_from_union,

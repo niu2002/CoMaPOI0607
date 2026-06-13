@@ -23,6 +23,7 @@ from transformers import AutoTokenizer
 from prompt_provider import PromptProvider
 from agentscope.message import Msg
 from agentscope.service import ServiceToolkit
+from candidate_fusion import fuse_candidates, summarize_fusion_result
 
 
 
@@ -251,13 +252,14 @@ def normalize_agent_candidate_lists(args, candidate_poi_list_agent1, candidate_p
     return processed_agent1, processed_agent2
 
 
-def build_prediction_fallback_pool(args, candidate_poi_list_agent1, candidate_poi_list_agent2, rag_candidates):
+def build_prediction_fallback_pool(args, candidate_poi_list_agent1, candidate_poi_list_agent2, rag_candidates,
+                                   fused_candidates=None):
     """
     Build a deterministic fallback ranking pool for final prediction.
     """
     fallback = []
     seen = set()
-    for source in (candidate_poi_list_agent2, candidate_poi_list_agent1, rag_candidates):
+    for source in (fused_candidates, candidate_poi_list_agent2, candidate_poi_list_agent1, rag_candidates):
         for poi_id in source or []:
             try:
                 poi_id = int(poi_id)
@@ -344,7 +346,8 @@ def prediction_parse_status(raw_response, parsed_pois, expected_count, fallback_
 def build_structured_reasoning(args, long_term_profile, short_pattern_response, rag_candidates,
                                candidate_poi_list_agent1, candidate_poi_list_agent2,
                                init_prediction, init_valid_poi_ids, init_fallback_used,
-                               final_prediction, valid_poi_ids, final_fallback_used):
+                               final_prediction, valid_poi_ids, final_fallback_used,
+                               fusion_summary=None):
     agent1_candidates = normalize_poi_ids(candidate_poi_list_agent1, args.max_item)
     agent2_candidates = normalize_poi_ids(candidate_poi_list_agent2, args.max_item)
     rag_candidate_ids = normalize_poi_ids(rag_candidates, args.max_item)
@@ -363,6 +366,8 @@ def build_structured_reasoning(args, long_term_profile, short_pattern_response, 
             "agent1_top25": agent1_candidates[:args.num_candidate],
             "agent2_top25": agent2_candidates[:args.num_candidate],
             "candidate_union": union_poi_ids(agent1_candidates, agent2_candidates),
+            "fused_top": (fusion_summary or {}).get("fused_top", []),
+            "fusion": fusion_summary or {},
         },
         "initial_prediction": {
             "raw": init_prediction,
@@ -390,15 +395,17 @@ def build_structured_reasoning(args, long_term_profile, short_pattern_response, 
 def extract_reasoning_candidates(reasoning_path):
     if isinstance(reasoning_path, dict):
         candidates = reasoning_path.get("candidates", {})
+        fused = normalize_poi_ids(candidates.get("fused_top", []))
         return {
             "rag": normalize_poi_ids(candidates.get("rag_top100", [])),
             "agent1": normalize_poi_ids(candidates.get("agent1_top25", [])),
             "agent2": normalize_poi_ids(candidates.get("agent2_top25", [])),
-            "union": normalize_poi_ids(candidates.get("candidate_union", [])),
+            "fused": fused,
+            "union": union_poi_ids(candidates.get("candidate_union", []), fused),
         }
 
     if not isinstance(reasoning_path, str):
-        return {"rag": [], "agent1": [], "agent2": [], "union": []}
+        return {"rag": [], "agent1": [], "agent2": [], "fused": [], "union": []}
 
     def extract_after(marker, next_marker=None):
         start = reasoning_path.find(marker)
@@ -416,6 +423,7 @@ def extract_reasoning_candidates(reasoning_path):
         "rag": [],
         "agent1": normalize_poi_ids(agent1),
         "agent2": normalize_poi_ids(agent2),
+        "fused": [],
         "union": union_poi_ids(agent1, agent2),
     }
 
@@ -454,6 +462,8 @@ def write_prediction_diagnostics(args, predictions, user_to_candidate_map, outpu
             recall_counts["agent2_top25"] += 1
         if label in set(candidates["agent1"]) | set(candidates["agent2"]):
             recall_counts["agent1_or_agent2"] += 1
+        if label in candidates["fused"]:
+            recall_counts["fused_top"] += 1
 
         union_candidates = set(candidates["union"])
         for poi_id in predicted:
@@ -468,6 +478,8 @@ def write_prediction_diagnostics(args, predictions, user_to_candidate_map, outpu
         "total_samples": total,
         "top_k": args.top_k,
         "num_candidate": args.num_candidate,
+        "candidate_fusion_strategy": args.candidate_fusion_strategy,
+        "fused_candidate_top_k": args.fused_candidate_top_k,
         "prediction_length_distribution": dict(sorted(length_distribution.items(), key=lambda item: int(item[0]))),
         "top_k_complete": {
             "count": length_distribution.get(str(args.top_k), 0),
@@ -479,6 +491,7 @@ def write_prediction_diagnostics(args, predictions, user_to_candidate_map, outpu
             "agent1_top25": {"hits": recall_counts["agent1_top25"], "rate": rate(recall_counts["agent1_top25"])},
             "agent2_top25": {"hits": recall_counts["agent2_top25"], "rate": rate(recall_counts["agent2_top25"])},
             "agent1_or_agent2": {"hits": recall_counts["agent1_or_agent2"], "rate": rate(recall_counts["agent1_or_agent2"])},
+            "fused_top": {"hits": recall_counts["fused_top"], "rate": rate(recall_counts["fused_top"])},
         },
         "predicted_from_candidate_union": {
             "count": predicted_from_union,
@@ -769,7 +782,8 @@ def forecaster_steps(Forecaster, prompt_provider, user_to_candidate_map):
     return short_pattern_response, candidate_poi_list_agent2
 
 
-def final_prediction_steps(Final_Predictor, prompt_provider, long_term_profile, short_term_profile, candidate_poi_list_agent1, candidate_poi_list_agent2):
+def final_prediction_steps(Final_Predictor, prompt_provider, long_term_profile, short_term_profile,
+                           candidate_poi_list_agent1, candidate_poi_list_agent2, fused_candidate_poi_list=None):
     """
     Execute the Final_Predictor agent steps to generate the final prediction.
 
@@ -785,7 +799,13 @@ def final_prediction_steps(Final_Predictor, prompt_provider, long_term_profile, 
         tuple: (initial_prediction, final_prediction)
     """
     # Generate initial prediction
-    prediction_prompt = prompt_provider.get_a3p1_prompt(long_term_profile, short_term_profile, candidate_poi_list_agent1, candidate_poi_list_agent2)
+    prediction_prompt = prompt_provider.get_a3p1_prompt(
+        long_term_profile,
+        short_term_profile,
+        candidate_poi_list_agent1,
+        candidate_poi_list_agent2,
+        fused_candidate_poi_list=fused_candidate_poi_list,
+    )
     message_init_prediction = Msg(name="Final_Predictor", content=prediction_prompt, role="user")
     initial_prediction_msg = Final_Predictor.reply(message_init_prediction)
     initial_prediction = initial_prediction_msg.content
@@ -898,6 +918,8 @@ def single_predict_save(params):
     # Get RAG candidates
     rag_candidates = get_rag_candidates(user_to_candidate_map, user_id)
     fallback_prediction_pool = []
+    fused_candidates = []
+    fusion_summary = None
     if args.ab_type == 'none':
         candidate_poi_list_agent1, candidate_poi_list_agent2 = normalize_agent_candidate_lists(
             args,
@@ -905,17 +927,27 @@ def single_predict_save(params):
             candidate_poi_list_agent2,
             rag_candidates,
         )
+        fusion_result = fuse_candidates(
+            args,
+            current_trajectory,
+            rag_candidates,
+            candidate_poi_list_agent1,
+            candidate_poi_list_agent2,
+        )
+        fused_candidates = fusion_result.fused_candidates
+        fusion_summary = summarize_fusion_result(fusion_result)
         fallback_prediction_pool = build_prediction_fallback_pool(
             args,
             candidate_poi_list_agent1,
             candidate_poi_list_agent2,
             rag_candidates,
+            fused_candidates=fused_candidates,
         )
 
     # Generate predictions
     init_prediction, final_prediction = final_prediction_steps(Final_Predictor, prompt_provider, long_term_profile,
                                                              short_pattern_response, candidate_poi_list_agent1,
-                                                             candidate_poi_list_agent2)
+                                                             candidate_poi_list_agent2, fused_candidates)
 
     # Process initial prediction
     init_predicted_pois = extract_and_clean_poi(
@@ -958,6 +990,7 @@ def single_predict_save(params):
         final_prediction,
         valid_poi_ids,
         final_fallback_used,
+        fusion_summary=fusion_summary,
     )
 
     return user_id, label, valid_poi_ids[:args.top_k], init_valid_poi_ids[:args.top_k], reasoning_path
@@ -1084,6 +1117,8 @@ def single_predict(params):
     # Get RAG candidates
     rag_candidates = get_rag_candidates(user_to_candidate_map, user_id)
     fallback_prediction_pool = []
+    fused_candidates = []
+    fusion_summary = None
     if args.ab_type == 'none':
         candidate_poi_list_agent1, candidate_poi_list_agent2 = normalize_agent_candidate_lists(
             args,
@@ -1091,17 +1126,27 @@ def single_predict(params):
             candidate_poi_list_agent2,
             rag_candidates,
         )
+        fusion_result = fuse_candidates(
+            args,
+            current_trajectory,
+            rag_candidates,
+            candidate_poi_list_agent1,
+            candidate_poi_list_agent2,
+        )
+        fused_candidates = fusion_result.fused_candidates
+        fusion_summary = summarize_fusion_result(fusion_result)
         fallback_prediction_pool = build_prediction_fallback_pool(
             args,
             candidate_poi_list_agent1,
             candidate_poi_list_agent2,
             rag_candidates,
+            fused_candidates=fused_candidates,
         )
 
     # Generate predictions
     init_prediction, final_prediction = final_prediction_steps(Final_Predictor, prompt_provider, long_term_profile,
                                                              short_pattern_response, candidate_poi_list_agent1,
-                                                             candidate_poi_list_agent2)
+                                                             candidate_poi_list_agent2, fused_candidates)
 
     # Process initial prediction
     init_predicted_pois = extract_and_clean_poi(
@@ -1144,6 +1189,7 @@ def single_predict(params):
         final_prediction,
         valid_poi_ids,
         final_fallback_used,
+        fusion_summary=fusion_summary,
     )
 
     return user_id, label, valid_poi_ids[:args.top_k], init_valid_poi_ids[:args.top_k], reasoning_path
@@ -1331,6 +1377,14 @@ def main():
     parser.add_argument('--agent2_max_tokens', type=int, default=256, help='Max tokens for Agent 2')
     parser.add_argument('--agent3_max_tokens', type=int, default=256, help='Max tokens for Agent 3')
     parser.add_argument('--profile_max_tokens', type=int, default=220, help='Target token budget for white-box profile summaries')
+    parser.add_argument('--candidate_fusion_strategy', type=str, default='none', choices=['none', 'union', 'rrf'], help='Candidate fusion strategy before final prediction')
+    parser.add_argument('--fused_candidate_top_k', type=int, default=50, help='Number of fused candidates to provide to Agent 3')
+    parser.add_argument('--rrf_k', type=float, default=60.0, help='RRF denominator constant')
+    parser.add_argument('--rrf_weights', type=str, default='', help='Comma-separated source weights, e.g. rag_top100=1.0,history_recent=1.2')
+    parser.add_argument('--history_candidate_k', type=int, default=30, help='Number of recent/frequent history candidates')
+    parser.add_argument('--geo_candidate_k', type=int, default=50, help='Number of geographic-neighbor candidates')
+    parser.add_argument('--category_candidate_k', type=int, default=50, help='Number of category-similar candidates')
+    parser.add_argument('--popular_candidate_k', type=int, default=50, help='Number of global popular candidates')
     parser.add_argument('--sub_file', type=str, default='ablation', help='Sub-directory for results')
     parser.add_argument('--load_pf_output', action="store_true", help='Load pre-generated profiles')
     parser.add_argument('--saved_results_path', type=str, default='none', help='Path to saved results')
@@ -1352,7 +1406,10 @@ def main():
 
     # Set save name if not manually provided
     if not args.store_save_name:
-        args.save_name = f"{args.op_str}/[Forward_Inference_{args.dataset}_{args.model}_{args.batch_size}_{args.num_candidate}_agent1_api_{args.agent1_api}_agent2_api_{args.agent2_api}_agent3_api_{args.agent3_api}]"
+        fusion_suffix = f"_fusion_{args.candidate_fusion_strategy}"
+        if args.candidate_fusion_strategy != "none":
+            fusion_suffix += f"_fused{args.fused_candidate_top_k}"
+        args.save_name = f"{args.op_str}/[Forward_Inference_{args.dataset}_{args.model}_{args.batch_size}_{args.num_candidate}_agent1_api_{args.agent1_api}_agent2_api_{args.agent2_api}_agent3_api_{args.agent3_api}{fusion_suffix}]"
 
     print("Starting forward inference with arguments:")
     for arg, value in vars(args).items():
