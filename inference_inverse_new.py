@@ -22,6 +22,7 @@ from prompt_provider import PromptProvider
 from ft_data import *
 from agentscope.message import Msg
 from agentscope.service import ServiceToolkit
+from candidate_fusion import fuse_candidates
 
 
 POLLUTED_CONTEXT_IDS = set(str(year) for year in range(2000, 2027)) | {
@@ -63,7 +64,8 @@ def _label_insert_position(label, user_id, subtrajectory_id, max_position):
 
 
 def build_clean_candidate_list(raw_candidates, *, label, fallback_candidates, max_item, target_length,
-                               user_id, subtrajectory_id, allowed_candidates=None, keep_label=True):
+                               user_id, subtrajectory_id, allowed_candidates=None, keep_label=True,
+                               label_position="variable"):
     """
     Clean generated candidate IDs before writing SFT data.
 
@@ -100,8 +102,11 @@ def build_clean_candidate_list(raw_candidates, *, label, fallback_candidates, ma
             break
 
     if keep_label and label_id:
-        max_position = min(5, target_length)
-        insert_at = _label_insert_position(label_id, user_id, subtrajectory_id, max_position)
+        if label_position == "first":
+            insert_at = 0
+        else:
+            max_position = min(5, target_length)
+            insert_at = _label_insert_position(label_id, user_id, subtrajectory_id, max_position)
         cleaned = [poi_id for poi_id in cleaned if poi_id != label_id]
         cleaned.insert(insert_at, label_id)
 
@@ -109,17 +114,32 @@ def build_clean_candidate_list(raw_candidates, *, label, fallback_candidates, ma
 
 
 def build_final_topk_target(label, candidate_poi_list_agent1, candidate_poi_list_agent2,
-                            rag_candidates, *, max_item, top_k, user_id, subtrajectory_id):
+                            rag_candidates, *, max_item, top_k, user_id, subtrajectory_id,
+                            extra_candidates=None, label_position="variable"):
     label_id = _normalize_poi_id(label, max_item)
     pool = _ordered_unique(
-        list(candidate_poi_list_agent1 or []) + list(candidate_poi_list_agent2 or []) + list(rag_candidates or []),
+        list(extra_candidates or [])
+        + list(candidate_poi_list_agent1 or [])
+        + list(candidate_poi_list_agent2 or [])
+        + list(rag_candidates or []),
         max_item,
     )
     pool = [poi_id for poi_id in pool if poi_id != label_id]
-    insert_at = _label_insert_position(label_id, user_id, subtrajectory_id, min(3, top_k)) if label_id else 0
+    if label_position == "first":
+        insert_at = 0
+    else:
+        insert_at = _label_insert_position(label_id, user_id, subtrajectory_id, min(3, top_k)) if label_id else 0
     if label_id:
         pool.insert(insert_at, label_id)
     return pool[:top_k]
+
+
+def is_paper_label_first_style(args):
+    return getattr(args, "inverse_rrf_style", "clean") in {"paper_label_first", "paper_label_first_fused"}
+
+
+def use_fused_inverse_candidates(args):
+    return getattr(args, "inverse_rrf_style", "clean") == "paper_label_first_fused"
 
 
 def json_content(key, value):
@@ -528,6 +548,7 @@ def single_predict_worker(params):
             target_length=args.num_candidate,
             user_id=user_id,
             subtrajectory_id=subtrajectory_id,
+            label_position="first" if is_paper_label_first_style(args) else "variable",
         )
 
         # Generate recent mobility analysis
@@ -548,6 +569,7 @@ def single_predict_worker(params):
             user_id=user_id,
             subtrajectory_id=subtrajectory_id,
             allowed_candidates=list(rag_candidates) + [label],
+            label_position="first" if is_paper_label_first_style(args) else "variable",
         )
 
         # Generate negative POI list
@@ -715,6 +737,7 @@ class InverseInferenceProcessor:
                 target_length=self.args.num_candidate,
                 user_id=user_id,
                 subtrajectory_id=subtrajectory_id,
+                label_position="first" if is_paper_label_first_style(self.args) else "variable",
             )
             o4 = build_clean_candidate_list(
                 o4,
@@ -725,7 +748,18 @@ class InverseInferenceProcessor:
                 user_id=user_id,
                 subtrajectory_id=subtrajectory_id,
                 allowed_candidates=list(rag_candidates) + [label],
+                label_position="first" if is_paper_label_first_style(self.args) else "variable",
             )
+            fused_candidates = []
+            if use_fused_inverse_candidates(self.args):
+                fusion_result = fuse_candidates(
+                    self.args,
+                    current_trajectory,
+                    rag_candidates,
+                    o2,
+                    o4,
+                )
+                fused_candidates = fusion_result.fused_candidates
             final_topk = build_final_topk_target(
                 label,
                 o2,
@@ -735,6 +769,8 @@ class InverseInferenceProcessor:
                 top_k=self.args.top_k,
                 user_id=user_id,
                 subtrajectory_id=subtrajectory_id,
+                extra_candidates=fused_candidates,
+                label_position="first" if is_paper_label_first_style(self.args) else "variable",
             )
 
             prompt_args = self.args
@@ -779,7 +815,13 @@ class InverseInferenceProcessor:
             entries3.append({
                 "messages": [
                     {"role": "system", "content": "You are a POI ranker. Return only valid JSON."},
-                    {"role": "user", "content": prompt_provider.get_a3p1_prompt(str(o1 or "").strip(), str(o3 or "").strip(), o2, o4)},
+                    {"role": "user", "content": prompt_provider.get_a3p1_prompt(
+                        str(o1 or "").strip(),
+                        str(o3 or "").strip(),
+                        o2,
+                        o4,
+                        fused_candidate_poi_list=fused_candidates,
+                    )},
                     {"role": "assistant", "content": json_content("next_poi_id", final_topk)},
                 ]
             })
@@ -973,9 +1015,25 @@ def main():
     parser.add_argument('--port', type=int, default=7863, help='OpenAI-compatible API server port')
     parser.add_argument('--num_candidate', type=int, default=25, help='Number of candidate POIs for agent candidate generation')
     parser.add_argument('--profile_max_tokens', type=int, default=220, help='Maximum profile length guidance for aligned prompts')
+    parser.add_argument(
+        '--inverse_rrf_style',
+        type=str,
+        default='clean',
+        choices=['clean', 'paper_label_first', 'paper_label_first_fused'],
+        help='Inverse SFT target style: clean keeps current debiased labels; paper_label_first restores label-first supervision; paper_label_first_fused also teaches Agent3 with fused candidates.',
+    )
+    parser.add_argument('--inverse_fusion_strategy', type=str, default='rrf', choices=['union', 'rrf'], help='Fusion strategy used only by paper_label_first_fused.')
+    parser.add_argument('--fused_candidate_top_k', type=int, default=50, help='Number of fused candidates for inverse Agent3 SFT.')
+    parser.add_argument('--rrf_k', type=float, default=60.0, help='RRF denominator constant for inverse fused candidates.')
+    parser.add_argument('--rrf_weights', type=str, default='', help='Comma-separated RRF source weights for inverse fused candidates.')
+    parser.add_argument('--history_candidate_k', type=int, default=30, help='Number of history candidates for inverse fused candidates.')
+    parser.add_argument('--geo_candidate_k', type=int, default=50, help='Number of geo candidates for inverse fused candidates.')
+    parser.add_argument('--category_candidate_k', type=int, default=50, help='Number of category candidates for inverse fused candidates.')
+    parser.add_argument('--popular_candidate_k', type=int, default=50, help='Number of popular candidates for inverse fused candidates.')
 
     args = parser.parse_args()
     dataset = args.dataset
+    args.candidate_fusion_strategy = args.inverse_fusion_strategy if use_fused_inverse_candidates(args) else "none"
 
     # Set dataset-specific parameters
     args.max_item = {"nyc": 5091, "tky": 7851, "ca": 13630}.get(dataset, 5091)

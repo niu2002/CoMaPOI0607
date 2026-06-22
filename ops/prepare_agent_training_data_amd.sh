@@ -19,6 +19,15 @@ export INVERSE_START_POINT="${INVERSE_START_POINT:-0}"
 export INVERSE_WORKERS="${INVERSE_WORKERS:-1}"
 export NUM_CANDIDATE="${NUM_CANDIDATE:-25}"
 export PROFILE_MAX_TOKENS="${PROFILE_MAX_TOKENS:-220}"
+export INVERSE_RRF_STYLE="${INVERSE_RRF_STYLE:-clean}"
+export INVERSE_FUSION_STRATEGY="${INVERSE_FUSION_STRATEGY:-rrf}"
+export FUSED_CANDIDATE_TOP_K="${FUSED_CANDIDATE_TOP_K:-50}"
+export RRF_K="${RRF_K:-60}"
+export RRF_WEIGHTS="${RRF_WEIGHTS:-}"
+export HISTORY_CANDIDATE_K="${HISTORY_CANDIDATE_K:-30}"
+export GEO_CANDIDATE_K="${GEO_CANDIDATE_K:-50}"
+export CATEGORY_CANDIDATE_K="${CATEGORY_CANDIDATE_K:-50}"
+export POPULAR_CANDIDATE_K="${POPULAR_CANDIDATE_K:-50}"
 export FORCE_CANDIDATES="${FORCE_CANDIDATES:-0}"
 export FORCE_AGENT_DATA="${FORCE_AGENT_DATA:-0}"
 
@@ -70,6 +79,7 @@ echo "[prepare-agent-data] project_root=$PROJECT_ROOT"
 echo "[prepare-agent-data] dataset=$DATASET"
 echo "[prepare-agent-data] mode=$MODE"
 echo "[prepare-agent-data] port=$PORT"
+echo "[prepare-agent-data] inverse_rrf_style=$INVERSE_RRF_STYLE"
 
 "$PYTHON_BIN" "$SCRIPT_DIR/prepare_multiagent_assets.py" --dataset "$DATASET"
 
@@ -118,7 +128,16 @@ echo "[prepare-agent-data] inverse_num_samples=$INVERSE_NUM_SAMPLES start=$INVER
   --start_point "$INVERSE_START_POINT" \
   --batch_size "$INVERSE_WORKERS" \
   --num_candidate "$NUM_CANDIDATE" \
-  --profile_max_tokens "$PROFILE_MAX_TOKENS"
+  --profile_max_tokens "$PROFILE_MAX_TOKENS" \
+  --inverse_rrf_style "$INVERSE_RRF_STYLE" \
+  --inverse_fusion_strategy "$INVERSE_FUSION_STRATEGY" \
+  --fused_candidate_top_k "$FUSED_CANDIDATE_TOP_K" \
+  --rrf_k "$RRF_K" \
+  --rrf_weights "$RRF_WEIGHTS" \
+  --history_candidate_k "$HISTORY_CANDIDATE_K" \
+  --geo_candidate_k "$GEO_CANDIDATE_K" \
+  --category_candidate_k "$CATEGORY_CANDIDATE_K" \
+  --popular_candidate_k "$POPULAR_CANDIDATE_K"
 
 for output_file in "$agent1_file" "$agent2_file" "$agent3_file"; do
   if [[ ! -s "$output_file" ]]; then
