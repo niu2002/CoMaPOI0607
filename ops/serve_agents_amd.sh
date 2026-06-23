@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${PORT:-7863}"
 HOST="${HOST:-127.0.0.1}"
-MODEL_ROOT="${MODEL_ROOT:-$PROJECT_ROOT/models}"
+MODEL_ROOT="${MODEL_ROOT:-/mnt/workspace/comapoilatest/models}"
 MODEL_NAME="${MODEL_NAME:-Llama-3.1-8B-Instruct}"
 MODEL_PATH="${MODEL_PATH:-$MODEL_ROOT/$MODEL_NAME}"
 SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-llama3.1-8b}"
