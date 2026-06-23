@@ -1056,13 +1056,11 @@ class InverseInferenceProcessor:
 
         generated_informations = {}
 
-        # Run parallel processing with the standalone worker function
-        with ProcessPoolExecutor(max_workers=self.args.batch_size) as executor:
-            futures = [executor.submit(safe_single_predict_worker, params) for params in params_list]
-
+        # Run sequential or parallel processing
+        if self.args.batch_size == 1:
             # Use green progress bar with tqdm
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Generating data", colour="green"):
-                payload = future.result()
+            for params in tqdm(params_list, total=len(params_list), desc="Generating data", colour="green"):
+                payload = safe_single_predict_worker(params)
                 if not payload["ok"]:
                     raise RuntimeError(
                         f"Inverse worker failed: {payload['error']}\n{payload['traceback']}"
@@ -1080,6 +1078,31 @@ class InverseInferenceProcessor:
                     "outputs_list": outputs_list,
                     "rag_candidates": rag_candidates,
                 }
+        else:
+            # Run parallel processing with the standalone worker function
+            with ProcessPoolExecutor(max_workers=self.args.batch_size) as executor:
+                futures = [executor.submit(safe_single_predict_worker, params) for params in params_list]
+
+                # Use green progress bar with tqdm
+                for future in tqdm(as_completed(futures), total=len(futures), desc="Generating data", colour="green"):
+                    payload = future.result()
+                    if not payload["ok"]:
+                        raise RuntimeError(
+                            f"Inverse worker failed: {payload['error']}\n{payload['traceback']}"
+                        )
+                    user_id, subtrajectory_id, label, current_trajectory, prompts_list, forward_prompts_list, outputs_list, rag_candidates = payload["result"]
+
+                    unique_key = f"U_{user_id}_S_{subtrajectory_id}"
+                    generated_informations[unique_key] = {
+                        "user_id": user_id,
+                        "subtrajectory_id": subtrajectory_id,
+                        "label": label,
+                        "current_trajectory": current_trajectory,
+                        "prompts_list": prompts_list,
+                        "forward_prompts_list": forward_prompts_list,
+                        "outputs_list": outputs_list,
+                        "rag_candidates": rag_candidates,
+                    }
 
         # Save results
         results_file_path = os.path.join(results_path, f"ALL_generated_informations.json")
@@ -1146,8 +1169,14 @@ def main():
 
 
 if __name__ == "__main__":
-    if os.name == 'nt':
+    import multiprocessing
+    if os.name != 'nt':
+        # Force spawn start method to prevent deadlock from fork inheriting locks
+        try:
+            multiprocessing.set_start_method('spawn', force=True)
+        except RuntimeError:
+            pass
+    else:
         # Windows platform needs protection at the main entry point
-        import multiprocessing
         multiprocessing.freeze_support()
     main()
