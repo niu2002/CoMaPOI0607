@@ -828,11 +828,12 @@ def forecaster_steps(Forecaster, prompt_provider, rag_candidates):
     short_pattern_response = extract_text_field(short_pattern_response.content, "current_profile")
 
     # Generate refined candidate list
+    rag_candidates_for_prompt = rag_candidates[:50]
     if getattr(prompt_provider.args, "use_hsid", False):
-        enriched_rag = enrich_poi_candidates(rag_candidates, prompt_provider.args)
+        enriched_rag = enrich_poi_candidates(rag_candidates_for_prompt, prompt_provider.args)
         refine_candidates_prompt = prompt_provider.get_a2p2_prompt(short_pattern_response, enriched_rag)
     else:
-        refine_candidates_prompt = prompt_provider.get_a2p2_prompt(short_pattern_response, rag_candidates)
+        refine_candidates_prompt = prompt_provider.get_a2p2_prompt(short_pattern_response, rag_candidates_for_prompt)
     message_refine_candidates = Msg(name="Forecaster", content=refine_candidates_prompt, role="user")
     optimized_poi_list_msg = Forecaster.reply(message_refine_candidates)
     candidate_poi_list_agent2 = optimized_poi_list_msg.content

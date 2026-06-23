@@ -37,7 +37,7 @@ base_cmd=(
   --dtype auto
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
   --max-num-seqs "${VLLM_MAX_NUM_SEQS:-16}"
-  --max-model-len "${VLLM_MAX_MODEL_LEN:-16384}"
+  --max-model-len "${VLLM_MAX_MODEL_LEN:-32768}"
   --disable-log-stats
 )
 

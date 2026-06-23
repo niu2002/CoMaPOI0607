@@ -601,10 +601,11 @@ def single_predict_worker(params):
 
         # Generate candidate POIs from RAG
         if getattr(args, "use_hsid", False):
-            enriched_rag = enrich_poi_candidates(rag_candidates, args)
+            # Limit candidate list length to 50 in prompt to stay within context length constraints
+            enriched_rag = enrich_poi_candidates(rag_candidates[:50], args)
             p4 = inverse_prompter.get_a2p2_prompt(o3, enriched_rag)
         else:
-            p4 = inverse_prompter.get_a2p2_prompt(o3, rag_candidates)
+            p4 = inverse_prompter.get_a2p2_prompt(o3, rag_candidates[:50])
         o4 = generate_by_agent(generator_value, p4)
         o4 = extract_and_clean_poi(o4, top_k=25, max_item=args.max_item)
         o4 = build_clean_candidate_list(
@@ -636,13 +637,13 @@ def single_predict_worker(params):
         fp2 = forward_prompter.get_a1p2_prompt(o1)
         fp3 = forward_prompter.get_a2p1_prompt()
         if getattr(args, "use_hsid", False):
-            enriched_rag = enrich_poi_candidates(rag_candidates, args)
+            enriched_rag = enrich_poi_candidates(rag_candidates[:50], args)
             fp4 = forward_prompter.get_a2p2_prompt(o3, enriched_rag)
             enriched_o2 = enrich_poi_candidates(o2, args)
             enriched_o4 = enrich_poi_candidates(o4, args)
             fp5 = forward_prompter.get_a3p1_prompt(o1, o3, enriched_o2, enriched_o4)
         else:
-            fp4 = forward_prompter.get_a2p2_prompt(o3, rag_candidates)
+            fp4 = forward_prompter.get_a2p2_prompt(o3, rag_candidates[:50])
             fp5 = forward_prompter.get_a3p1_prompt(o1, o3, o2, o4)
 
         # Detailed output is suppressed for cleaner logs
@@ -880,7 +881,7 @@ class InverseInferenceProcessor:
                         {"role": "system", "content": "You are a POI candidate generator. Return only valid JSON."},
                         {"role": "user", "content": prompt_provider.get_a2p2_prompt(
                             str(o3 or "").strip(),
-                            enrich_poi_candidates(rag_candidates, self.args) if getattr(self.args, "use_hsid", False) else rag_candidates
+                            enrich_poi_candidates(rag_candidates[:50], self.args) if getattr(self.args, "use_hsid", False) else rag_candidates[:50]
                         )},
                         {"role": "assistant", "content": json_content("refined_candidate_from_rag", o4)},
                     ]
