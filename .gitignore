@@ -7,3 +7,15 @@ finetune/results/
 models/Qwen3.5-2B/
 dataset_all/*.zip
 models/qwen3-2.5B-intro
+
+# Gemini config
+.agents/
+agent.md
+
+# Intermediate dataset layouts & copies
+dataset_all/ca/train/
+dataset_all/ca/test/
+dataset_all/ca/ca_poi_info.csv
+
+# Temporary resources
+res/
