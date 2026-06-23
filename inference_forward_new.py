@@ -27,6 +27,54 @@ from candidate_fusion import fuse_candidates, summarize_fusion_result
 
 
 
+
+POI_INFO_GLOBAL = None
+HSID_INFO_GLOBAL = None
+
+def get_global_poi_and_hsid(args):
+    global POI_INFO_GLOBAL, HSID_INFO_GLOBAL
+    import os
+    import json
+    if POI_INFO_GLOBAL is None:
+        from candidate_fusion import load_poi_info
+        POI_INFO_GLOBAL = load_poi_info(args.dataset)
+    if HSID_INFO_GLOBAL is None:
+        HSID_INFO_GLOBAL = {}
+        if getattr(args, "use_hsid", False):
+            hsid_path = getattr(args, "hsid_path", "") or f"dataset_all/{args.dataset}/poi_hsid.json"
+            if os.path.exists(hsid_path):
+                print(f"[INFO] Process {os.getpid()} loading HSID map from {hsid_path}")
+                with open(hsid_path, "r", encoding="utf-8") as f:
+                    HSID_INFO_GLOBAL = json.load(f)
+            else:
+                print(f"[WARN] HSID enabled but file not found: {hsid_path}")
+    return POI_INFO_GLOBAL, HSID_INFO_GLOBAL
+
+
+def enrich_poi_candidates(poi_ids, args):
+    """
+    Enrich raw POI ID list with detailed metadata (Category, Location, HSID) 
+    to empower LLM's spatial and semantic context reasoning.
+    """
+    if not poi_ids:
+        return []
+    poi_info_dict, hsid_dict = get_global_poi_and_hsid(args)
+    enriched = []
+    for idx, poi_id in enumerate(poi_ids):
+        poi_str = str(poi_id)
+        info = poi_info_dict.get(poi_str, {})
+        item = {
+            "rank": idx + 1,
+            "poi_id": int(poi_id) if poi_str.isdigit() else poi_id,
+            "category": info.get("category", "Unknown"),
+            "location": [info.get("lat", 0.0), info.get("lon", 0.0)]
+        }
+        if getattr(args, "use_hsid", False) and poi_str in hsid_dict:
+            item["hsid"] = hsid_dict[poi_str].get("hsid_text", "")
+        enriched.append(item)
+    return enriched
+
+
 def extract_and_clean_poi(prediction, top_k, max_item, key_name="next_poi_id", strict=True):
     """
     Extract and clean predicted POIs.
@@ -774,7 +822,11 @@ def forecaster_steps(Forecaster, prompt_provider, user_to_candidate_map):
 
     # Generate refined candidate list
     rag_candidates = get_rag_candidates(user_to_candidate_map, prompt_provider.user_id)
-    refine_candidates_prompt = prompt_provider.get_a2p2_prompt(short_pattern_response, rag_candidates)
+    if getattr(prompt_provider.args, "use_hsid", False):
+        enriched_rag = enrich_poi_candidates(rag_candidates, prompt_provider.args)
+        refine_candidates_prompt = prompt_provider.get_a2p2_prompt(short_pattern_response, enriched_rag)
+    else:
+        refine_candidates_prompt = prompt_provider.get_a2p2_prompt(short_pattern_response, rag_candidates)
     message_refine_candidates = Msg(name="Forecaster", content=refine_candidates_prompt, role="user")
     optimized_poi_list_msg = Forecaster.reply(message_refine_candidates)
     candidate_poi_list_agent2 = optimized_poi_list_msg.content
@@ -799,13 +851,25 @@ def final_prediction_steps(Final_Predictor, prompt_provider, long_term_profile, 
         tuple: (initial_prediction, final_prediction)
     """
     # Generate initial prediction
-    prediction_prompt = prompt_provider.get_a3p1_prompt(
-        long_term_profile,
-        short_term_profile,
-        candidate_poi_list_agent1,
-        candidate_poi_list_agent2,
-        fused_candidate_poi_list=fused_candidate_poi_list,
-    )
+    if getattr(prompt_provider.args, "use_hsid", False):
+        enriched_a1 = enrich_poi_candidates(candidate_poi_list_agent1, prompt_provider.args)
+        enriched_a2 = enrich_poi_candidates(candidate_poi_list_agent2, prompt_provider.args)
+        enriched_fused = enrich_poi_candidates(fused_candidate_poi_list, prompt_provider.args)
+        prediction_prompt = prompt_provider.get_a3p1_prompt(
+            long_term_profile,
+            short_term_profile,
+            enriched_a1,
+            enriched_a2,
+            fused_candidate_poi_list=enriched_fused,
+        )
+    else:
+        prediction_prompt = prompt_provider.get_a3p1_prompt(
+            long_term_profile,
+            short_term_profile,
+            candidate_poi_list_agent1,
+            candidate_poi_list_agent2,
+            fused_candidate_poi_list=fused_candidate_poi_list,
+        )
     message_init_prediction = Msg(name="Final_Predictor", content=prediction_prompt, role="user")
     initial_prediction_msg = Final_Predictor.reply(message_init_prediction)
     initial_prediction = initial_prediction_msg.content
@@ -1245,7 +1309,10 @@ class ForwardInferenceProcessor:
         metrics_csv = f'{results_path}/metrics.csv'
         diagnostics_json = f'{results_path}/diagnostics.json'
 
-        candidate_output_json = data_path + f"/{args.dataset}_{args.mode}_candidates.jsonl"
+        if getattr(args, "use_hsid", False):
+            candidate_output_json = data_path + f"/{args.dataset}_{args.mode}_candidates_hsid.jsonl"
+        else:
+            candidate_output_json = data_path + f"/{args.dataset}_{args.mode}_candidates.jsonl"
 
         # Load samples
         samples = []
@@ -1395,6 +1462,8 @@ def main():
     parser.add_argument('--prompt_format', type=str, default="json", help='Prompt format')
     parser.add_argument('--ab_type', type=str, default="none", help='Ablation type')
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
+    parser.add_argument('--use_hsid', action="store_true", help='Enable HSID representation in prompts')
+    parser.add_argument('--hsid_path', type=str, default='', help='Path to poi_hsid.json')
 
     args = parser.parse_args()
     dataset = args.dataset

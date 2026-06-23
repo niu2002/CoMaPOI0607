@@ -27,6 +27,8 @@ def parse_args():
         default=DEFAULT_QUERY_INSTRUCTION,
         help="Instruction prefix for query embedding",
     )
+    parser.add_argument("--use_hsid", action="store_true", help="Enable HSID embedding text augmentation")
+    parser.add_argument("--hsid_path", type=str, default="", help="Path to poi_hsid.json")
     return parser.parse_args()
 
 
@@ -37,6 +39,8 @@ def main():
         embedding_batch_size=args.embedding_batch_size,
         embedding_max_length=args.embedding_max_length,
         embedding_query_instruction=args.embedding_query_instruction,
+        use_hsid=args.use_hsid,
+        hsid_path=args.hsid_path,
     )
     max_item = {"nyc": 5091, "tky": 7851, "ca": 13630}[args.dataset]
     finder = RAG_Finder(
@@ -47,7 +51,14 @@ def main():
         args=namespace,
         mode=args.mode,
     )
-    finder.generate_candidates()
+    output_file = finder.generate_candidates()
+    
+    import os
+    if args.use_hsid:
+        new_output_file = output_file.replace("_candidates.jsonl", "_candidates_hsid.jsonl")
+        if os.path.exists(output_file):
+            os.replace(output_file, new_output_file)
+            print(f"Renamed HSID candidates target file to: {new_output_file}")
 
 
 if __name__ == "__main__":

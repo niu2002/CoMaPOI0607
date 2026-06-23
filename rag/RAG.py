@@ -149,8 +149,25 @@ class RAG_Finder:
             max_length=int(getattr(self.args, "embedding_max_length", 2048)),
         )
 
-        self.faiss_index_file = str((self.data_root / "poi_faiss_index.bin").resolve())
+        # 根据是否启用 HSID，使用独立的索引文件防止缓存干扰
+        self.use_hsid = getattr(self.args, "use_hsid", False)
+        index_name = "poi_faiss_index_hsid.bin" if self.use_hsid else "poi_faiss_index.bin"
+        self.faiss_index_file = str((self.data_root / index_name).resolve())
         self.numpy_index_file = f"{self.faiss_index_file}.npy"
+        
+        # 加载离线 HSID 数据
+        self.hsid_data = {}
+        if self.use_hsid:
+            hsid_path = getattr(self.args, "hsid_path", "")
+            if not hsid_path:
+                hsid_path = str(self.dataset_root / self.data / "poi_hsid.json")
+            if os.path.exists(hsid_path):
+                print(f"Loading HSID reference mapping from {hsid_path}")
+                with open(hsid_path, "r", encoding="utf-8") as f:
+                    self.hsid_data = json.load(f)
+            else:
+                print(f"[WARN] HSID enabled but file not found: {hsid_path}")
+
         if (HAS_FAISS and not os.path.exists(self.faiss_index_file)) or (not HAS_FAISS and not os.path.exists(self.numpy_index_file)):
             self.init_poi_databank()
         else:
@@ -204,10 +221,14 @@ class RAG_Finder:
         return pd.read_csv(file_path)
 
     def generate_poi_embeddings(self, poi_data):
-        descriptions = [
-            f"POI ID: {int(row['poi_id'])}, Category: {row['category']}, Location: {row['lat']}, {row['lon']}"
-            for _, row in poi_data.iterrows()
-        ]
+        descriptions = []
+        for _, row in poi_data.iterrows():
+            poi_id_str = str(int(row['poi_id']))
+            desc = f"POI ID: {poi_id_str}, Category: {row['category']}, Location: {row['lat']}, {row['lon']}"
+            # 如果存在 HSID 信息，追加至 embedding 文本的末尾
+            if self.use_hsid and poi_id_str in self.hsid_data:
+                desc += f", HSID: {self.hsid_data[poi_id_str].get('hsid_text', '')}"
+            descriptions.append(desc)
         return self.bce_model.encode_batch(descriptions, is_query=False).astype(np.float32)
 
     def create_faiss_index(self, embeddings):
