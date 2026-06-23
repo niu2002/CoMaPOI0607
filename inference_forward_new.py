@@ -1396,24 +1396,10 @@ class ForwardInferenceProcessor:
                 )
 
         # Run prediction.
-        if args.batch_size <= 1:
-            predict_fn = single_predict_save if args.load_pf_output else single_predict
-            for params in tqdm(params_list, total=len(params_list), desc="Predicting POIs", colour="green"):
-                save_prediction_result(predict_fn(params))
-        else:
-            with ProcessPoolExecutor(max_workers=args.batch_size) as executor:
-                submit_fn = safe_single_predict_save if args.load_pf_output else safe_single_predict
-                futures = [executor.submit(submit_fn, params) for params in params_list]
-
-                # Use green progress bar with tqdm
-                for future in tqdm(as_completed(futures), total=len(futures), desc="Predicting POIs", colour="green"):
-                    payload = future.result()
-                    if not payload["ok"]:
-                        raise RuntimeError(
-                            "Prediction worker failed: "
-                            f"{payload['error']}\n{payload['traceback']}"
-                        )
-                    save_prediction_result(payload["result"])
+        # Run prediction sequentially in a single thread
+        predict_fn = single_predict_save if args.load_pf_output else single_predict
+        for params in tqdm(params_list, total=len(params_list), desc="Predicting POIs", colour="green"):
+            save_prediction_result(predict_fn(params))
 
         # Save final results
         print("\n[INFO] Processing complete. Saving final prediction results.")
