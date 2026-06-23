@@ -1,4 +1,56 @@
 import json
+import re
+
+def format_historical_info(historical_dist):
+    if not historical_dist:
+        return "None"
+    
+    # If it is a string already, just return it
+    if isinstance(historical_dist, str):
+        return historical_dist
+        
+    # If it is a dictionary containing historical_information
+    if isinstance(historical_dist, dict):
+        hist_info = historical_dist.get("historical_information", None)
+        if hist_info is None:
+            try:
+                return json.dumps(historical_dist, ensure_ascii=False)
+            except Exception:
+                return str(historical_dist)
+        historical_dist = hist_info
+        
+    # If historical_dist is a list (e.g. of dictionaries representing trajectories)
+    if isinstance(historical_dist, list):
+        checkins = set()
+        pattern = r"At \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}, [A-Za-z]+, user \d+ visit POI ID \d+ \([^)]+\)\.?"
+        for item in historical_dist:
+            if isinstance(item, dict) and "messages" in item:
+                for msg in item["messages"]:
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        content = msg.get("content", "")
+                        for m in re.findall(pattern, content):
+                            m_clean = m.strip()
+                            if m_clean.endswith("."):
+                                m_clean = m_clean[:-1].strip()
+                            checkins.add(m_clean)
+            elif isinstance(item, str):
+                for m in re.findall(pattern, item):
+                    m_clean = m.strip()
+                    if m_clean.endswith("."):
+                        m_clean = m_clean[:-1].strip()
+                    checkins.add(m_clean)
+        
+        if checkins:
+            # Sort chronologically by the timestamp prefix
+            sorted_checkins = sorted(list(checkins))
+            return "\n".join(sorted_checkins)
+            
+    # Fallback to json.dumps
+    try:
+        return json.dumps(historical_dist, ensure_ascii=False)
+    except Exception:
+        return str(historical_dist)
+
 class Forwar_prompter:
     def __init__(self, args, user_id, subtrajectory_id, current_trajectory, next_poi_info):
         self.user_id = user_id
@@ -8,6 +60,7 @@ class Forwar_prompter:
         self.next_poi_info = next_poi_info
 
     def get_a1p1_prompt(self, historical_distribution):
+        formatted_history = format_historical_info(historical_distribution)
         prompt_data = f"""
         ###IDENTITY and PURPOSE:
         You are an expert User Profiler specialized in constructing long-term user profiles based on the user's next POI visit information.
@@ -18,7 +71,7 @@ class Forwar_prompter:
         - Category: {self.next_poi_info[1]}
         - Locations: Latitude: {self.next_poi_info[2]}, Longitude: {self.next_poi_info[3]}
 
-        ###historical trajectory data: {historical_distribution}"""
+        ###historical trajectory data: {formatted_history}"""
 
         return json.dumps(prompt_data, indent=2)
 
@@ -155,6 +208,7 @@ class Inverse_prompter:
         self.next_poi_info = next_poi_info
 
     def get_a1p1_prompt(self, historical_distribution):
+        formatted_history = format_historical_info(historical_distribution)
         system_prompt_format = """system: Respond with a JSON dictionary in a markdown's fenced code block as follows:\n```json\n{\n  "historical_distribution": ["A detailed textual analysis of the user's recent mobility patterns"]\n}\n```"""
 
         prompt_data = {
@@ -167,7 +221,7 @@ class Inverse_prompter:
                 "locations": {
                     "latitude": self.next_poi_info[2],
                     "longitude": self.next_poi_info[3]}},
-            "INPUT": f"User's historical trajectory data: {historical_distribution}",
+            "INPUT": f"User's historical trajectory data: {formatted_history}",
             "STEPS": [
                 "Analyze the characteristics of the next POI (e.g., category, location).",
                 "Construct a long-term profile that aligns with these characteristics and logically leads to the user visiting this next POI.",

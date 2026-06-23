@@ -1,5 +1,56 @@
 import json
 import pandas as pd
+import re
+
+def format_historical_info(historical_dist):
+    if not historical_dist:
+        return "None"
+    
+    # If it is a string already, just return it
+    if isinstance(historical_dist, str):
+        return historical_dist
+        
+    # If it is a dictionary containing historical_information
+    if isinstance(historical_dist, dict):
+        hist_info = historical_dist.get("historical_information", None)
+        if hist_info is None:
+            try:
+                return json.dumps(historical_dist, ensure_ascii=False)
+            except Exception:
+                return str(historical_dist)
+        historical_dist = hist_info
+        
+    # If historical_dist is a list (e.g. of dictionaries representing trajectories)
+    if isinstance(historical_dist, list):
+        checkins = set()
+        pattern = r"At \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}, [A-Za-z]+, user \d+ visit POI ID \d+ \([^)]+\)\.?"
+        for item in historical_dist:
+            if isinstance(item, dict) and "messages" in item:
+                for msg in item["messages"]:
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        content = msg.get("content", "")
+                        for m in re.findall(pattern, content):
+                            m_clean = m.strip()
+                            if m_clean.endswith("."):
+                                m_clean = m_clean[:-1].strip()
+                            checkins.add(m_clean)
+            elif isinstance(item, str):
+                for m in re.findall(pattern, item):
+                    m_clean = m.strip()
+                    if m_clean.endswith("."):
+                        m_clean = m_clean[:-1].strip()
+                    checkins.add(m_clean)
+        
+        if checkins:
+            # Sort chronologically by the timestamp prefix
+            sorted_checkins = sorted(list(checkins))
+            return "\n".join(sorted_checkins)
+            
+    # Fallback to json.dumps
+    try:
+        return json.dumps(historical_dist, ensure_ascii=False)
+    except Exception:
+        return str(historical_dist)
 
 
 class PromptProvider:
@@ -28,6 +79,7 @@ class PromptProvider:
         return rules
 
     def get_a1p1_prompt(self, historical_distribution):
+        formatted_history = format_historical_info(historical_distribution)
         system_prompt_format = self._json_block(
             '{"historical_profile": "A concise long-term profile summary"}'
         )
@@ -35,7 +87,7 @@ class PromptProvider:
             "IDENTITY and PURPOSE": "You are an expert User Profiler specialized in constructing long-term user profiles based on the user's historical trajectory data.",
             "TASK": f"For user_{self.user_id}, use the provided historical trajectory distribution to generate a long-term profile that reflects the user's preferences, behavioral patterns, and likely characteristics.",
             "User": f"User ID:{self.user_id}",
-            "INPUT": f"User's historical trajectory data: {historical_distribution}",
+            "INPUT": f"User's historical trajectory data: {formatted_history}",
             "STEPS": [
                 "Identify only predictive long-term signals: recurring time windows, stable areas, favorite categories, and repeated high-signal POIs.",
                 "Compress the result into a concise profile that helps rank the next POI.",
