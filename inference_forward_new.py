@@ -30,6 +30,10 @@ from candidate_fusion import fuse_candidates, summarize_fusion_result
 
 POI_INFO_GLOBAL = None
 HSID_INFO_GLOBAL = None
+INFERENCE_LOG_COUNTER = 0
+
+from agentscope.agents import AgentBase
+AgentBase.speak = lambda self, message: None
 
 def get_global_poi_and_hsid(args):
     global POI_INFO_GLOBAL, HSID_INFO_GLOBAL
@@ -1349,6 +1353,19 @@ class ForwardInferenceProcessor:
 
         def save_prediction_result(prediction_tuple):
             user_id, label, valid_poi_ids, init_valid_poi_ids, reasoning_path = prediction_tuple
+
+            global INFERENCE_LOG_COUNTER
+            if INFERENCE_LOG_COUNTER == 0:
+                import tqdm
+                trace_msg = (
+                    "\n" + "="*40 + " FIRST SAMPLE TRACE (FOR PROMPT & HSID AUDIT) " + "="*40 + "\n"
+                    f"[Sample Info] User ID: {user_id} | Target Label: {label}\n"
+                    f"[Reasoning Detail (JSON)]:\n{json.dumps(reasoning_path, indent=2, ensure_ascii=False)}\n"
+                    f"[Extracted Final POIs]: {valid_poi_ids}\n"
+                    + "="*100 + "\n"
+                )
+                tqdm.tqdm.write(trace_msg)
+                INFERENCE_LOG_COUNTER += 1
 
             all_predictions[user_id] = {
                 "user_id": user_id,
