@@ -36,6 +36,8 @@ base_cmd=(
   --tensor-parallel-size 1
   --dtype auto
   --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION"
+  --max-num-seqs "${VLLM_MAX_NUM_SEQS:-16}"
+  --max-model-len "${VLLM_MAX_MODEL_LEN:-8192}"
   --disable-log-stats
 )
 

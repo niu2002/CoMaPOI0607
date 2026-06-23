@@ -137,7 +137,8 @@ echo "[prepare-agent-data] inverse_num_samples=$INVERSE_NUM_SAMPLES start=$INVER
   --history_candidate_k "$HISTORY_CANDIDATE_K" \
   --geo_candidate_k "$GEO_CANDIDATE_K" \
   --category_candidate_k "$CATEGORY_CANDIDATE_K" \
-  --popular_candidate_k "$POPULAR_CANDIDATE_K"
+  --popular_candidate_k "$POPULAR_CANDIDATE_K" \
+  "$@"
 
 for output_file in "$agent1_file" "$agent2_file" "$agent3_file"; do
   if [[ ! -s "$output_file" ]]; then

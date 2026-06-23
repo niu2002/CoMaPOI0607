@@ -24,6 +24,52 @@ from agentscope.message import Msg
 from agentscope.service import ServiceToolkit
 from candidate_fusion import fuse_candidates
 
+POI_INFO_GLOBAL = None
+HSID_INFO_GLOBAL = None
+
+def get_global_poi_and_hsid(args):
+    global POI_INFO_GLOBAL, HSID_INFO_GLOBAL
+    import os
+    import json
+    if POI_INFO_GLOBAL is None:
+        from candidate_fusion import load_poi_info
+        POI_INFO_GLOBAL = load_poi_info(args.dataset)
+    if HSID_INFO_GLOBAL is None:
+        HSID_INFO_GLOBAL = {}
+        if getattr(args, "use_hsid", False):
+            hsid_path = getattr(args, "hsid_path", "") or f"dataset_all/{args.dataset}/poi_hsid.json"
+            if os.path.exists(hsid_path):
+                print(f"[INFO] Process {os.getpid()} loading HSID map from {hsid_path}")
+                with open(hsid_path, "r", encoding="utf-8") as f:
+                    HSID_INFO_GLOBAL = json.load(f)
+            else:
+                print(f"[WARN] HSID enabled but file not found: {hsid_path}")
+    return POI_INFO_GLOBAL, HSID_INFO_GLOBAL
+
+def enrich_poi_candidates(poi_ids, args):
+    """
+    Enrich raw POI ID list with detailed metadata (Category, Location, HSID) 
+    to empower LLM's spatial and semantic context reasoning.
+    """
+    if not poi_ids:
+        return []
+    poi_info_dict, hsid_dict = get_global_poi_and_hsid(args)
+    enriched = []
+    for idx, poi_id in enumerate(poi_ids):
+        poi_str = str(poi_id)
+        info = poi_info_dict.get(poi_str, {})
+        item = {
+            "rank": idx + 1,
+            "poi_id": int(poi_id) if poi_str.isdigit() else poi_id,
+            "category": info.get("category", "Unknown"),
+            "location": [info.get("lat", 0.0), info.get("lon", 0.0)]
+        }
+        if getattr(args, "use_hsid", False) and poi_str in hsid_dict:
+            item["hsid"] = hsid_dict[poi_str].get("hsid_text", "")
+        enriched.append(item)
+    return enriched
+
+AGENTSCOPE_INITIALIZED = False
 
 POLLUTED_CONTEXT_IDS = set(str(year) for year in range(2000, 2027)) | {
     "25",  # Frequently leaked from "generate 25 candidates".
@@ -190,8 +236,11 @@ def init_agents(args):
         }
     ]
 
+    global AGENTSCOPE_INITIALIZED
     # Initialize AgentScope with model configurations
-    agentscope.init(model_configs=model_configs, logger_level="CRITICAL", use_monitor=False)
+    if not AGENTSCOPE_INITIALIZED:
+        agentscope.init(model_configs=model_configs, logger_level="CRITICAL", use_monitor=False)
+        AGENTSCOPE_INITIALIZED = True
     service_toolkit = ServiceToolkit()
     service_toolkit.add(get_all_information_tool)
 
@@ -501,13 +550,13 @@ def single_predict_worker(params):
     This function initializes its own agents to avoid serialization issues.
 
     Args:
-        params: Tuple containing (selected_sample, args, user_to_candidate_map)
+        params: Tuple containing (selected_sample, args, rag_candidates, his_summary)
 
     Returns:
         tuple: Results of the prediction process
     """
     try:
-        selected_sample, args, user_to_candidate_map = params
+        selected_sample, args, rag_candidates, his_summary = params
         user_id, subtrajectory_id, label, current_trajectory = parse_user_and_trajectory_train(
             selected_sample.get('messages', []))  # Parse user ID and current trajectory from messages
 
@@ -518,18 +567,12 @@ def single_predict_worker(params):
         generator.memory.clear()
         generator_value.memory.clear()
 
-        # Get historical summary
-        historical_summary_list = process_and_save_profiles(args, generator)
-        his_summary = next((item for item in historical_summary_list if str(item["user_id"]) == user_id), None)
-
         # Progress is shown by tqdm
         label_id, category, lat, lon = access_poi_info(args, int(label))
 
         next_poi_info = [label_id, category, lat, lon]
         inverse_prompter = Inverse_prompter(args, user_id, subtrajectory_id, current_trajectory, next_poi_info)
         forward_prompter = Forwar_prompter(args, user_id, subtrajectory_id, current_trajectory, next_poi_info)
-        rag_candidates = user_to_candidate_map[user_id]
-        rag_candidates = [int(candidate) for candidate in rag_candidates[:100]]
 
         # Generate historical distribution
         p1 = inverse_prompter.get_a1p1_prompt(his_summary)
@@ -557,7 +600,11 @@ def single_predict_worker(params):
         o3 = extract_text(o3, "recent_mobility_analysis")
 
         # Generate candidate POIs from RAG
-        p4 = inverse_prompter.get_a2p2_prompt(o3, rag_candidates)
+        if getattr(args, "use_hsid", False):
+            enriched_rag = enrich_poi_candidates(rag_candidates, args)
+            p4 = inverse_prompter.get_a2p2_prompt(o3, enriched_rag)
+        else:
+            p4 = inverse_prompter.get_a2p2_prompt(o3, rag_candidates)
         o4 = generate_by_agent(generator_value, p4)
         o4 = extract_and_clean_poi(o4, top_k=25, max_item=args.max_item)
         o4 = build_clean_candidate_list(
@@ -573,7 +620,12 @@ def single_predict_worker(params):
         )
 
         # Generate negative POI list
-        p5 = inverse_prompter.get_a3p1_prompt(o1, o3, o2, o4)
+        if getattr(args, "use_hsid", False):
+            enriched_o2 = enrich_poi_candidates(o2, args)
+            enriched_o4 = enrich_poi_candidates(o4, args)
+            p5 = inverse_prompter.get_a3p1_prompt(o1, o3, enriched_o2, enriched_o4)
+        else:
+            p5 = inverse_prompter.get_a3p1_prompt(o1, o3, o2, o4)
         o5 = generate_by_agent(generator_value, p5)
         o5 = extract_and_clean_poi(o5, top_k=20, max_item=args.max_item)
         o5 = complete_negative_poi_list(o5, o2, o4, rag_candidates, label, target_length=20)
@@ -583,8 +635,15 @@ def single_predict_worker(params):
         fp1 = forward_prompter.get_a1p1_prompt(his_summary)
         fp2 = forward_prompter.get_a1p2_prompt(o1)
         fp3 = forward_prompter.get_a2p1_prompt()
-        fp4 = forward_prompter.get_a2p2_prompt(o3, rag_candidates)
-        fp5 = forward_prompter.get_a3p1_prompt(o1, o3, o2, o4)
+        if getattr(args, "use_hsid", False):
+            enriched_rag = enrich_poi_candidates(rag_candidates, args)
+            fp4 = forward_prompter.get_a2p2_prompt(o3, enriched_rag)
+            enriched_o2 = enrich_poi_candidates(o2, args)
+            enriched_o4 = enrich_poi_candidates(o4, args)
+            fp5 = forward_prompter.get_a3p1_prompt(o1, o3, enriched_o2, enriched_o4)
+        else:
+            fp4 = forward_prompter.get_a2p2_prompt(o3, rag_candidates)
+            fp5 = forward_prompter.get_a3p1_prompt(o1, o3, o2, o4)
 
         # Detailed output is suppressed for cleaner logs
 
@@ -806,7 +865,10 @@ class InverseInferenceProcessor:
                 {
                     "messages": [
                         {"role": "system", "content": "You are a POI candidate generator. Return only valid JSON."},
-                        {"role": "user", "content": prompt_provider.get_a2p2_prompt(str(o3 or "").strip(), rag_candidates)},
+                        {"role": "user", "content": prompt_provider.get_a2p2_prompt(
+                            str(o3 or "").strip(),
+                            enrich_poi_candidates(rag_candidates, self.args) if getattr(self.args, "use_hsid", False) else rag_candidates
+                        )},
                         {"role": "assistant", "content": json_content("refined_candidate_from_rag", o4)},
                     ]
                 },
@@ -818,9 +880,9 @@ class InverseInferenceProcessor:
                     {"role": "user", "content": prompt_provider.get_a3p1_prompt(
                         str(o1 or "").strip(),
                         str(o3 or "").strip(),
-                        o2,
-                        o4,
-                        fused_candidate_poi_list=fused_candidates,
+                        enrich_poi_candidates(o2, self.args) if getattr(self.args, "use_hsid", False) else o2,
+                        enrich_poi_candidates(o4, self.args) if getattr(self.args, "use_hsid", False) else o4,
+                        fused_candidate_poi_list=enrich_poi_candidates(fused_candidates, self.args) if getattr(self.args, "use_hsid", False) else fused_candidates,
                     )},
                     {"role": "assistant", "content": json_content("next_poi_id", final_topk)},
                 ]
@@ -953,15 +1015,30 @@ class InverseInferenceProcessor:
         # Get candidate list
         user_to_candidate_map = load_candidate_list(candidate_output_json)
 
-        # Prepare parameters for parallel processing
-        if self.args.num_samples == 1:
-            params_list = [(samples[0], self.args, user_to_candidate_map)]
+        # Load or generate historical profiles
+        historical_distribution_path = f'dataset_all/{dataset}/{dataset}_historical_summary.jsonl'
+        if not os.path.exists(historical_distribution_path):
+            print(f"[INFO] Generating historical profiles...")
+            generator, _ = init_agents(self.args)
+            historical_summary_list = process_and_save_profiles(self.args, generator)
+            global AGENTSCOPE_INITIALIZED
+            AGENTSCOPE_INITIALIZED = False
         else:
-            params_list = []
-            for i in range(self.args.start_point, self.args.num_samples):
-                selected_sample = samples[i % len(samples)]
-                params = (selected_sample, self.args, user_to_candidate_map)
-                params_list.append(params)
+            print(f"[INFO] Loading historical profiles from {historical_distribution_path}")
+            with open(historical_distribution_path, 'r', encoding='utf-8') as f:
+                historical_summary_list = [json.loads(line) for line in f]
+
+        # Prepare parameters for parallel processing
+        params_list = []
+        for i in range(self.args.start_point, self.args.num_samples):
+            selected_sample = samples[i % len(samples)]
+            user_id, subtrajectory_id, label, current_trajectory = parse_user_and_trajectory_train(
+                selected_sample.get('messages', []))
+            rag_candidates = user_to_candidate_map.get(user_id, [])
+            rag_candidates = [int(candidate) for candidate in rag_candidates[:100]]
+            his_summary = next((item for item in historical_summary_list if str(item["user_id"]) == user_id), None)
+            params = (selected_sample, self.args, rag_candidates, his_summary)
+            params_list.append(params)
 
         generated_informations = {}
 
@@ -1030,6 +1107,8 @@ def main():
     parser.add_argument('--geo_candidate_k', type=int, default=50, help='Number of geo candidates for inverse fused candidates.')
     parser.add_argument('--category_candidate_k', type=int, default=50, help='Number of category candidates for inverse fused candidates.')
     parser.add_argument('--popular_candidate_k', type=int, default=50, help='Number of popular candidates for inverse fused candidates.')
+    parser.add_argument('--use_hsid', action='store_true', help='Enable HSID representation in prompts')
+    parser.add_argument('--hsid_path', type=str, default='', help='Path to poi_hsid.json')
 
     args = parser.parse_args()
     dataset = args.dataset

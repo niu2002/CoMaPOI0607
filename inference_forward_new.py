@@ -31,6 +31,7 @@ from candidate_fusion import fuse_candidates, summarize_fusion_result
 POI_INFO_GLOBAL = None
 HSID_INFO_GLOBAL = None
 INFERENCE_LOG_COUNTER = 0
+AGENTSCOPE_INITIALIZED = False
 
 from agentscope.agents import AgentBase
 AgentBase.speak = lambda self, message: None
@@ -623,9 +624,11 @@ def init_agents(args):
     }
 
     # Initialize AgentScope with model configurations
-    agentscope.init(model_configs=[model_config_agent1, model_config_agent2, model_config_agent3],
-                    logger_level="CRITICAL",
-                    use_monitor=False)
+    if not AGENTSCOPE_INITIALIZED:
+        agentscope.init(model_configs=[model_config_agent1, model_config_agent2, model_config_agent3],
+                        logger_level="CRITICAL",
+                        use_monitor=False)
+        AGENTSCOPE_INITIALIZED = True
 
     # Create service toolkit and add tools
     service_toolkit = ServiceToolkit()
@@ -806,14 +809,14 @@ def profiler_steps(Profiler, prompt_provider, user_id, current_trajectory, histo
     return long_term_profile, candidate_poi_list_agent1
 
 
-def forecaster_steps(Forecaster, prompt_provider, user_to_candidate_map):
+def forecaster_steps(Forecaster, prompt_provider, rag_candidates):
     """
     Execute the Forecaster agent steps to generate short-term pattern and refined candidates.
 
     Args:
         Forecaster: The Forecaster agent
         prompt_provider: Prompt provider for generating prompts
-        user_to_candidate_map: Map of user IDs to candidate POIs
+        rag_candidates: List of candidate POI IDs for the user
 
     Returns:
         tuple: (short_pattern_response, candidate_poi_list_agent2)
@@ -825,7 +828,6 @@ def forecaster_steps(Forecaster, prompt_provider, user_to_candidate_map):
     short_pattern_response = extract_text_field(short_pattern_response.content, "current_profile")
 
     # Generate refined candidate list
-    rag_candidates = get_rag_candidates(user_to_candidate_map, prompt_provider.user_id)
     if getattr(prompt_provider.args, "use_hsid", False):
         enriched_rag = enrich_poi_candidates(rag_candidates, prompt_provider.args)
         refine_candidates_prompt = prompt_provider.get_a2p2_prompt(short_pattern_response, enriched_rag)
@@ -927,12 +929,12 @@ def single_predict_save(params):
     Predict POIs for a single sample using saved reasoning paths.
 
     Args:
-        params: Tuple containing (selected_sample, args, user_to_candidate_map, historical_summary_list)
+        params: Tuple containing (selected_sample, args, rag_candidates, his_summary)
 
     Returns:
         tuple: (user_id, label, valid_poi_ids, init_valid_poi_ids, reasoning_path)
     """
-    selected_sample, args, user_to_candidate_map, historical_summary_list = params
+    selected_sample, args, rag_candidates, his_summary = params
     user_id, label, current_trajectory = parse_user_and_trajectory(selected_sample.get('messages', []))
 
     # Set up paths
@@ -983,8 +985,7 @@ def single_predict_save(params):
     # Create prompt provider
     prompt_provider = PromptProvider(args, user_id, current_trajectory)
 
-    # Get RAG candidates
-    rag_candidates = get_rag_candidates(user_to_candidate_map, user_id)
+    # rag_candidates is already passed in params
     fallback_prediction_pool = []
     fused_candidates = []
     fusion_summary = None
@@ -1081,12 +1082,12 @@ def single_predict(params):
     Predict POIs for a single sample using the full agent pipeline.
 
     Args:
-        params: Tuple containing (selected_sample, args, user_to_candidate_map, historical_summary_list)
+        params: Tuple containing (selected_sample, args, rag_candidates, his_summary)
 
     Returns:
         tuple: (user_id, label, valid_poi_ids, init_valid_poi_ids, reasoning_path)
     """
-    selected_sample, args, user_to_candidate_map, historical_summary_list = params
+    selected_sample, args, rag_candidates, his_summary = params
     user_id, label, current_trajectory = parse_user_and_trajectory(selected_sample.get('messages', []))
 
     # Initialize agents
@@ -1103,9 +1104,6 @@ def single_predict(params):
 
     # Create prompt provider
     prompt_provider = PromptProvider(args, user_id, current_trajectory)
-
-    # Get historical summary
-    his_summary = next((item for item in historical_summary_list if str(item["user_id"]) == user_id), None)
 
     # Apply ablation settings and run appropriate agent steps
     if args.ab_type == 'forecaster':
@@ -1140,7 +1138,7 @@ def single_predict(params):
 
         # Run Forecaster
         short_pattern_response, candidate_poi_list_agent2 = forecaster_steps(Forecaster, prompt_provider,
-                                                                           user_to_candidate_map)
+                                                                           rag_candidates)
         candidate_poi_list_agent2 = extract_and_clean_poi(
             candidate_poi_list_agent2,
             top_k=args.num_candidate,
@@ -1152,18 +1150,18 @@ def single_predict(params):
     elif args.ab_type == 'candidate':
         # Run Profiler
         long_term_profile, candidate_poi_list_agent1 = profiler_steps(Profiler, prompt_provider, user_id,
-                                                                    current_trajectory, his_summary)
+                                                                     current_trajectory, his_summary)
         candidate_poi_list_agent1 = ['0'] * args.num_candidate
 
         # Run Forecaster
         short_pattern_response, candidate_poi_list_agent2 = forecaster_steps(Forecaster, prompt_provider,
-                                                                           user_to_candidate_map)
+                                                                           rag_candidates)
         candidate_poi_list_agent2 = ['0'] * args.num_candidate
 
     else:
         # Run full pipeline
         long_term_profile, candidate_poi_list_agent1 = profiler_steps(Profiler, prompt_provider, user_id,
-                                                                    current_trajectory, his_summary)
+                                                                     current_trajectory, his_summary)
         candidate_poi_list_agent1 = extract_and_clean_poi(
             candidate_poi_list_agent1,
             top_k=args.num_candidate,
@@ -1173,7 +1171,7 @@ def single_predict(params):
         )
 
         short_pattern_response, candidate_poi_list_agent2 = forecaster_steps(Forecaster, prompt_provider,
-                                                                           user_to_candidate_map)
+                                                                           rag_candidates)
         candidate_poi_list_agent2 = extract_and_clean_poi(
             candidate_poi_list_agent2,
             top_k=args.num_candidate,
@@ -1182,8 +1180,7 @@ def single_predict(params):
             strict=True,
         )
 
-    # Get RAG candidates
-    rag_candidates = get_rag_candidates(user_to_candidate_map, user_id)
+    # Get RAG candidates (already in params)
     fallback_prediction_pool = []
     fused_candidates = []
     fusion_summary = None
@@ -1346,7 +1343,10 @@ class ForwardInferenceProcessor:
         params_list = []
         for i in range(args.start_point, n):
             selected_sample = samples[i % num_samples]
-            params = (selected_sample, args, user_to_candidate_map, historical_summary_list)
+            user_id, label, current_trajectory = parse_user_and_trajectory(selected_sample.get('messages', []))
+            rag_candidates = get_rag_candidates(user_to_candidate_map, user_id)
+            his_summary = next((item for item in historical_summary_list if str(item["user_id"]) == user_id), None)
+            params = (selected_sample, args, rag_candidates, his_summary)
             params_list.append(params)
 
         all_predictions = {}
