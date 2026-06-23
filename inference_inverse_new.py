@@ -657,6 +657,19 @@ def single_predict_worker(params):
         raise
 
 
+def safe_single_predict_worker(params):
+    """Wrap inverse prediction worker so process pool returns pickle-safe results."""
+    try:
+        return {"ok": True, "result": single_predict_worker(params)}
+    except Exception as exc:
+        import traceback
+        return {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+        }
+
+
 class InverseInferenceProcessor:
     """
     Main class for inverse inference processing.
@@ -1044,11 +1057,16 @@ class InverseInferenceProcessor:
 
         # Run parallel processing with the standalone worker function
         with ProcessPoolExecutor(max_workers=self.args.batch_size) as executor:
-            futures = [executor.submit(single_predict_worker, params) for params in params_list]
+            futures = [executor.submit(safe_single_predict_worker, params) for params in params_list]
 
             # Use green progress bar with tqdm
             for future in tqdm(as_completed(futures), total=len(futures), desc="Generating data", colour="green"):
-                user_id, subtrajectory_id, label, current_trajectory, prompts_list, forward_prompts_list, outputs_list, rag_candidates = future.result()
+                payload = future.result()
+                if not payload["ok"]:
+                    raise RuntimeError(
+                        f"Inverse worker failed: {payload['error']}\n{payload['traceback']}"
+                    )
+                user_id, subtrajectory_id, label, current_trajectory, prompts_list, forward_prompts_list, outputs_list, rag_candidates = payload["result"]
 
                 unique_key = f"U_{user_id}_S_{subtrajectory_id}"
                 generated_informations[unique_key] = {
