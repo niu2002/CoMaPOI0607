@@ -572,6 +572,7 @@ def init_agents(args):
     Returns:
         tuple: (Profiler, Forecaster, Final_Predictor) - The initialized agents
     """
+    global AGENTSCOPE_INITIALIZED
     # Configure Agent 1 (Profiler)
     model_config_agent1 = {
         "config_name": f"{args.agent1_api}",
