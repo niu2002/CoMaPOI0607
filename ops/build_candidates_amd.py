@@ -29,6 +29,7 @@ def parse_args():
     )
     parser.add_argument("--use_hsid", action="store_true", help="Enable HSID embedding text augmentation")
     parser.add_argument("--hsid_path", type=str, default="", help="Path to poi_hsid.json")
+    parser.add_argument("--strategy", type=str, default="rag", choices=["rag", "expertrag"], help="Candidate retrieval strategy")
     
     # Cloud embedding and reranker arguments
     parser.add_argument("--use_cloud_embedding", action="store_true", help="Use cloud embedding API instead of local model")
@@ -55,6 +56,7 @@ def main():
         embedding_model_name=args.embedding_model_name,
         use_reranker=args.use_reranker,
         reranker_model=args.reranker_model,
+        strategy=args.strategy,
     )
     max_item = {"nyc": 5091, "tky": 7851, "ca": 13630}[args.dataset]
     finder = RAG_Finder(
@@ -69,10 +71,11 @@ def main():
     
     import os
     if args.use_hsid:
-        new_output_file = output_file.replace("_candidates.jsonl", "_candidates_hsid.jsonl")
-        if os.path.exists(output_file):
-            os.replace(output_file, new_output_file)
-            print(f"Renamed HSID candidates target file to: {new_output_file}")
+        if "_candidates" in output_file:
+            new_output_file = output_file.replace("_candidates", "_candidates_hsid")
+            if os.path.exists(output_file):
+                os.replace(output_file, new_output_file)
+                print(f"Renamed HSID candidates target file to: {new_output_file}")
 
 
 if __name__ == "__main__":

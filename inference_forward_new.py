@@ -1515,6 +1515,7 @@ def main():
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--use_hsid', action="store_true", help='Enable HSID representation in prompts')
     parser.add_argument('--hsid_path', type=str, default='', help='Path to poi_hsid.json')
+    parser.add_argument('--strategy', type=str, default='rag', choices=['rag', 'expertrag'], help='Candidate retrieval strategy')
 
     # Agent API Key and Base URL parameters
     parser.add_argument('--agent1_base_url', type=str, default='', help='Base URL for Agent 1')

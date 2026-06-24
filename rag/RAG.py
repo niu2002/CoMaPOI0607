@@ -253,6 +253,12 @@ class RAG_Finder:
         self.poi_id_to_index = {int(row["poi_id"]): idx for idx, row in self.poi_data.iterrows()}
         self.index_to_poi_id = {idx: int(row["poi_id"]) for idx, row in self.poi_data.iterrows()}
 
+        # Initialize strategy and ExpertRAG if strategy is expertrag
+        self.strategy = getattr(self.args, "strategy", "rag")
+        if self.strategy == "expertrag":
+            from rag.expertrag import ExpertRAG
+            self.expert_rag = ExpertRAG(self)
+
     def resolve_sample_file(self):
         candidates = [
             self.dataset_root / self.data / self.mode / f"{self.data}_{self.mode}.jsonl",
@@ -438,8 +444,12 @@ class RAG_Finder:
                 return None
 
             query = f"User trajectory: {current_trajectory}"
-            candidates = self.search_similar_pois(query, k=self.top_k)
-            candidate_poi_ids = [int(candidate["poi_id"]) for candidate in candidates]
+            if self.strategy == "expertrag":
+                query_embedding = self.bce_model.encode(query, is_query=True).astype(np.float32)
+                candidate_poi_ids = self.expert_rag.get_expert_candidates(current_trajectory, query_embedding, k=self.top_k)
+            else:
+                candidates = self.search_similar_pois(query, k=self.top_k)
+                candidate_poi_ids = [int(candidate["poi_id"]) for candidate in candidates]
 
             return {"user_id": str(user_id), "candidates": candidate_poi_ids}
 
@@ -466,7 +476,8 @@ class RAG_Finder:
 
         output_dir = self.data_root / self.mode
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / f"{self.data}_{self.mode}_candidates.jsonl"
+        strategy_suffix = f"_{self.strategy}" if self.strategy != "rag" else ""
+        output_file = output_dir / f"{self.data}_{self.mode}_candidates{strategy_suffix}.jsonl"
         with open(output_file, "w", encoding="utf-8") as writer:
             for result in results:
                 writer.write(json.dumps(result, ensure_ascii=False) + "\n")
