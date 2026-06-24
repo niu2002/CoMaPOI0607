@@ -661,16 +661,32 @@ def single_predict_worker(params):
 
 
 def safe_single_predict_worker(params):
-    """Wrap inverse prediction worker so process pool returns pickle-safe results."""
-    try:
-        return {"ok": True, "result": single_predict_worker(params)}
-    except Exception as exc:
-        import traceback
-        return {
-            "ok": False,
-            "error": f"{type(exc).__name__}: {exc}",
-            "traceback": traceback.format_exc(),
-        }
+    """Wrap inverse prediction worker so process pool returns pickle-safe results with connection retries."""
+    import time
+    max_retries = 5
+    retry_delay = 5
+    for attempt in range(1, max_retries + 1):
+        try:
+            return {"ok": True, "result": single_predict_worker(params)}
+        except Exception as exc:
+            exc_name = type(exc).__name__
+            exc_str = str(exc)
+            # Check for common network/connection exceptions
+            is_conn_error = any(
+                term in exc_name or term in exc_str 
+                for term in ["Connection", "ConnectError", "httpx", "httpcore", "APIConnectionError", "ConnectionRefusedError"]
+            )
+            if is_conn_error and attempt < max_retries:
+                print(f"\n[WARN] Connection error during worker prediction: {exc_name}: {exc_str}. "
+                      f"Retrying in {retry_delay}s (Attempt {attempt}/{max_retries})...")
+                time.sleep(retry_delay)
+                continue
+            import traceback
+            return {
+                "ok": False,
+                "error": f"{exc_name}: {exc}",
+                "traceback": traceback.format_exc(),
+            }
 
 
 class InverseInferenceProcessor:
@@ -1056,11 +1072,31 @@ class InverseInferenceProcessor:
             params = (selected_sample, self.args, rag_candidates, his_summary)
             params_list.append(params)
 
+        # Load progress from ALL_generated_informations.json if it exists
         generated_informations = {}
+        results_file_path = os.path.join(results_path, f"ALL_generated_informations.json")
+        if os.path.exists(results_file_path):
+            print(f"[INFO] Found existing progress in {results_file_path}. Loading...")
+            try:
+                with open(results_file_path, "r", encoding="utf-8") as json_file:
+                    generated_informations = json.load(json_file)
+                print(f"[INFO] Successfully loaded {len(generated_informations)} previously generated samples.")
+            except Exception as e:
+                print(f"[WARN] Failed to load {results_file_path}: {e}. Starting from scratch.")
+                generated_informations = {}
 
         # Run prediction sequentially in a single thread
         # Use green progress bar with tqdm
         for params in tqdm(params_list, total=len(params_list), desc="Generating data", colour="green"):
+            selected_sample, args, rag_candidates, his_summary = params
+            user_id, subtrajectory_id, label, current_trajectory = parse_user_and_trajectory_train(
+                selected_sample.get('messages', []))
+            unique_key = f"U_{user_id}_S_{subtrajectory_id}"
+
+            # Check if this sample has already been generated
+            if unique_key in generated_informations:
+                continue
+
             payload = safe_single_predict_worker(params)
             if not payload["ok"]:
                 raise RuntimeError(
@@ -1068,7 +1104,6 @@ class InverseInferenceProcessor:
                 )
             user_id, subtrajectory_id, label, current_trajectory, prompts_list, forward_prompts_list, outputs_list, rag_candidates = payload["result"]
 
-            unique_key = f"U_{user_id}_S_{subtrajectory_id}"
             generated_informations[unique_key] = {
                 "user_id": user_id,
                 "subtrajectory_id": subtrajectory_id,
@@ -1080,8 +1115,11 @@ class InverseInferenceProcessor:
                 "rag_candidates": rag_candidates,
             }
 
-        # Save results
-        results_file_path = os.path.join(results_path, f"ALL_generated_informations.json")
+            # Periodic saving (every 5 samples) to prevent data loss on crashes
+            if len(generated_informations) % 5 == 0:
+                self.save_generated_informations_to_json(generated_informations, results_file_path)
+
+        # Save final results
         self.save_generated_informations_to_json(generated_informations, results_file_path)
 
         # Save generated samples
