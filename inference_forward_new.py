@@ -1370,14 +1370,33 @@ class ForwardInferenceProcessor:
                 
         user_to_candidate_map = load_candidate_list(candidate_output_json)
 
+        all_predictions = {}
+        completed_user_ids = set()
+        if os.path.exists(output_json):
+            try:
+                with open(output_json, 'r', encoding='utf-8') as f:
+                    existing_data = json.load(f)
+                    if isinstance(existing_data, list):
+                        for item in existing_data:
+                            if isinstance(item, dict) and "user_id" in item:
+                                all_predictions[item["user_id"]] = item
+                                completed_user_ids.add(item["user_id"])
+                if completed_user_ids:
+                    print(f"[INFO] Found existing predictions in checkpoint. Skipping {len(completed_user_ids)} completed samples.")
+            except Exception as e:
+                print(f"[WARN] Failed to load existing predictions: {e}. Starting from scratch.")
+                all_predictions = {}
+                completed_user_ids = set()
+
         # Prepare parameters for parallel processing
         params_list = []
         for i in range(args.start_point, n):
             selected_sample = samples[i % num_samples]
+            user_id = selected_sample.get("user_id")
+            if user_id in completed_user_ids:
+                continue
             params = (selected_sample, args, user_to_candidate_map, historical_summary_list)
             params_list.append(params)
-
-        all_predictions = {}
 
         def save_prediction_result(prediction_tuple):
             user_id, label, valid_poi_ids, init_valid_poi_ids, reasoning_path = prediction_tuple
