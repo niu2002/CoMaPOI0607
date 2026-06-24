@@ -68,14 +68,16 @@ def enrich_poi_candidates(poi_ids, args):
     for idx, poi_id in enumerate(poi_ids):
         poi_str = str(poi_id)
         info = poi_info_dict.get(poi_str, {})
-        item = {
-            "rank": idx + 1,
-            "poi_id": int(poi_id) if poi_str.isdigit() else poi_id,
-            "category": info.get("category", "Unknown"),
-            "location": [info.get("lat", 0.0), info.get("lon", 0.0)]
-        }
+        category = info.get("category", "Unknown")
+        lat = info.get("lat", 0.0)
+        lon = info.get("lon", 0.0)
         if getattr(args, "use_hsid", False) and poi_str in hsid_dict:
-            item["hsid"] = hsid_dict[poi_str].get("hsid_text", "")
+            hsid_text = hsid_dict[poi_str].get("hsid_text", "")
+            # Remove redundant category info from HSID text to save tokens
+            hsid_text_clean = hsid_text.replace("category=" + category + "; ", "").replace("category=" + category, "")
+            item = f"poi_id: {poi_str} (Category: {category}, Location: [{lat:.4f}, {lon:.4f}], HSID: {hsid_text_clean})"
+        else:
+            item = f"poi_id: {poi_str} (Category: {category}, Location: [{lat:.4f}, {lon:.4f}])"
         enriched.append(item)
     return enriched
 
