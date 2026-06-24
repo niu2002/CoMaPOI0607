@@ -4,6 +4,14 @@ Inverse Inference Module for CoMaPOI
 This script performs inverse inference to generate training data for POI prediction models.
 It uses language models to generate synthetic data based on target POIs.
 """
+import sys
+import io
+
+# Force stdout and stderr to use UTF-8 encoding on Windows to prevent GBK encoding crashes
+if sys.platform.startswith("win"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import argparse
 import json
 import os
@@ -157,14 +165,17 @@ def init_agents(args):
     Returns:
         tuple: (generator, generator_value) - The initialized agents
     """
+    api_url = getattr(args, "agent1_base_url", "") or getattr(args, "api_base_url", "") or f"http://localhost:{args.port}/v1"
+    api_key = getattr(args, "agent1_api_key", "") or getattr(args, "api_key", "") or "EMPTY"
+
     model_configs = [
         {
             "config_name": f"{args.api_type}",
             "model_type": "openai_chat",
             "model_name": f"{args.api_type}",
-            "api_key": "EMPTY",
+            "api_key": api_key,
             "client_args": {
-                "base_url": f"http://localhost:{args.port}/v1"
+                "base_url": api_url
             },
             "generate_args": {
                 "temperature": 0.5,
@@ -177,9 +188,9 @@ def init_agents(args):
             "config_name": f"{args.api_type}_value",
             "model_type": "openai_chat",
             "model_name": f"{args.api_type}",
-            "api_key": "EMPTY",
+            "api_key": api_key,
             "client_args": {
-                "base_url": f"http://localhost:{args.port}/v1"
+                "base_url": api_url
             },
             "generate_args": {
                 "temperature": 0.2,
@@ -528,7 +539,17 @@ def single_predict_worker(params):
         next_poi_info = [label_id, category, lat, lon]
         inverse_prompter = Inverse_prompter(args, user_id, subtrajectory_id, current_trajectory, next_poi_info)
         forward_prompter = Forwar_prompter(args, user_id, subtrajectory_id, current_trajectory, next_poi_info)
-        rag_candidates = user_to_candidate_map[user_id]
+        
+        # Safely fetch RAG candidates
+        rag_candidates = []
+        for key in [user_id, str(user_id), int(user_id) if isinstance(user_id, (int, str)) and str(user_id).isdigit() else None]:
+            if key is not None and key in user_to_candidate_map:
+                rag_candidates = user_to_candidate_map[key]
+                break
+        
+        if not rag_candidates:
+            print(f"[WARN] Missing RAG candidates for user_id={user_id}; using empty candidate list.")
+            
         rag_candidates = [int(candidate) for candidate in rag_candidates[:100]]
 
         # Generate historical distribution
@@ -668,11 +689,38 @@ class InverseInferenceProcessor:
                 lines = [json.loads(line.strip()) for line in f]
 
             for line in lines:
-                # Extract user_id and subtrajectory_id
+                # Extract user_id and subtrajectory_id safely
                 user_info = line["messages"][1]["content"]
-                user_info_dict = json.loads(user_info).get("user_info", {})
-                user_id = user_info_dict.get("user_id", "unknown")
-                subtrajectory_id = user_info_dict.get("subtrajectory_id", "unknown")
+                user_id = "unknown"
+                subtrajectory_id = "unknown"
+
+                # 1. Try JSON parsing
+                try:
+                    user_info_dict = json.loads(user_info)
+                    if isinstance(user_info_dict, dict):
+                        user_info_sub = user_info_dict.get("user_info", {})
+                        if isinstance(user_info_sub, dict):
+                            user_id = str(user_info_sub.get("user_id", "unknown"))
+                            subtrajectory_id = str(user_info_sub.get("subtrajectory_id", "unknown"))
+                        
+                        if user_id == "unknown" and "User" in user_info_dict:
+                            user_id_str = str(user_info_dict["User"])
+                            m = re.search(r"User\s*ID:?\s*(\w+)", user_id_str, re.I)
+                            if m:
+                                user_id = m.group(1)
+                except Exception:
+                    pass
+
+                # 2. Try Regex parsing as fallback (especially for plain text prompts)
+                if user_id == "unknown":
+                    m_user = re.search(r"User\s*ID:?\s*(\w+)", user_info, re.I)
+                    if m_user:
+                        user_id = m_user.group(1)
+                
+                if subtrajectory_id == "unknown":
+                    m_sub = re.search(r"Subtrajectory\s*ID:?\s*(\w+)", user_info, re.I)
+                    if m_sub:
+                        subtrajectory_id = m_sub.group(1)
 
                 # Modify system content
                 system_content = line["messages"][0]["content"] + f" For user_{user_id}_Subtrajectory_{subtrajectory_id}:"
@@ -944,13 +992,26 @@ class InverseInferenceProcessor:
 
         # Load samples
         samples = []
-        with open(f'dataset_all/{dataset}/{self.args.mode}/{dataset}_{self.args.mode}.jsonl', 'r') as f:
+        sample_file_path = f'dataset_all/{dataset}/{self.args.mode}/{dataset}_{self.args.mode}.jsonl'
+        if not os.path.exists(sample_file_path):
+            fallback_sample_path = f'dataset_all/{dataset}_{self.args.mode}.jsonl'
+            if os.path.exists(fallback_sample_path):
+                sample_file_path = fallback_sample_path
+                print(f"[INFO] Using fallback dataset path: {sample_file_path}")
+
+        with open(sample_file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 samples.append(json.loads(line))
 
         print(f"Processing {self.args.num_samples} samples with {self.args.batch_size} parallel workers...")
 
-        # Get candidate list
+        # Get candidate list with fallback check
+        if not os.path.exists(candidate_output_json):
+            fallback_cand_json = f"dataset_all/{self.args.dataset}_{self.args.mode}_candidates_hsid.jsonl" if getattr(self.args, "use_hsid", False) else f"dataset_all/{self.args.dataset}_{self.args.mode}_candidates.jsonl"
+            if os.path.exists(fallback_cand_json):
+                candidate_output_json = fallback_cand_json
+                print(f"[INFO] Using fallback candidate json path: {candidate_output_json}")
+
         user_to_candidate_map = load_candidate_list(candidate_output_json)
 
         # Prepare parameters for parallel processing
@@ -1030,6 +1091,20 @@ def main():
     parser.add_argument('--geo_candidate_k', type=int, default=50, help='Number of geo candidates for inverse fused candidates.')
     parser.add_argument('--category_candidate_k', type=int, default=50, help='Number of category candidates for inverse fused candidates.')
     parser.add_argument('--popular_candidate_k', type=int, default=50, help='Number of popular candidates for inverse fused candidates.')
+
+    # Agent API Key and Base URL parameters
+    parser.add_argument('--agent1_base_url', type=str, default='', help='Base URL for Agent')
+    parser.add_argument('--agent1_api_key', type=str, default='', help='API Key for Agent')
+    parser.add_argument('--api_base_url', type=str, default='', help='Generic API Base URL')
+    parser.add_argument('--api_key', type=str, default='', help='Generic API Key')
+
+    # Embedding and Reranker API parameters
+    parser.add_argument('--use_cloud_embedding', action="store_true", help='Use Cloud Embedding API')
+    parser.add_argument('--embedding_api_key', type=str, default='', help='API Key for Cloud Embedding / Reranker')
+    parser.add_argument('--embedding_base_url', type=str, default='', help='Base URL for Cloud Embedding')
+    parser.add_argument('--embedding_model_name', type=str, default='text-embedding-v3', help='Model name for Cloud Embedding')
+    parser.add_argument('--use_reranker', action="store_true", help='Use Cloud Rerank API to refine candidates')
+    parser.add_argument('--reranker_model', type=str, default='qwen3-rerank', help='Model name for Cloud Rerank')
 
     args = parser.parse_args()
     dataset = args.dataset

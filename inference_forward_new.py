@@ -4,6 +4,14 @@ Forward Inference Module for CoMaPOI
 This script performs forward inference for POI prediction using a multi-agent approach.
 It coordinates three agents (Profiler, Forecaster, and Final_Predictor) to predict the next POI.
 """
+import sys
+import io
+
+# Force stdout and stderr to use UTF-8 encoding on Windows to prevent GBK encoding crashes
+if sys.platform.startswith("win"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 import argparse
 import json
 import os
@@ -568,13 +576,15 @@ def init_agents(args):
         tuple: (Profiler, Forecaster, Final_Predictor) - The initialized agents
     """
     # Configure Agent 1 (Profiler)
+    agent1_url = getattr(args, "agent1_base_url", "") or f"http://localhost:{args.port}/v1"
+    agent1_key = getattr(args, "agent1_api_key", "") or "EMPTY"
     model_config_agent1 = {
         "config_name": f"{args.agent1_api}",
         "model_type": "openai_chat",
         "model_name": f"{args.agent1_api}",
-        "api_key": "EMPTY",
+        "api_key": agent1_key,
         "client_args": {
-            "base_url": f"http://localhost:{args.port}/v1"
+            "base_url": agent1_url
         },
         "generate_args": {
             "temperature": args.temperature,
@@ -585,13 +595,15 @@ def init_agents(args):
     }
 
     # Configure Agent 2 (Forecaster)
+    agent2_url = getattr(args, "agent2_base_url", "") or f"http://localhost:{args.port}/v1"
+    agent2_key = getattr(args, "agent2_api_key", "") or "EMPTY"
     model_config_agent2 = {
         "config_name": f"{args.agent2_api}",
         "model_type": "openai_chat",
         "model_name": f"{args.agent2_api}",
-        "api_key": "EMPTY",
+        "api_key": agent2_key,
         "client_args": {
-            "base_url": f"http://localhost:{args.port}/v1"
+            "base_url": agent2_url
         },
         "generate_args": {
             "temperature": args.temperature,
@@ -602,13 +614,15 @@ def init_agents(args):
     }
 
     # Configure Agent 3 (Final_Predictor)
+    agent3_url = getattr(args, "agent3_base_url", "") or f"http://localhost:{args.port}/v1"
+    agent3_key = getattr(args, "agent3_api_key", "") or "EMPTY"
     model_config_agent3 = {
         "config_name": f"{args.agent3_api}",
         "model_type": "openai_chat",
         "model_name": f"{args.agent3_api}",
-        "api_key": "EMPTY",
+        "api_key": agent3_key,
         "client_args": {
-            "base_url": f"http://localhost:{args.port}/v1"
+            "base_url": agent3_url
         },
         "generate_args": {
             "temperature": args.temperature,
@@ -1316,7 +1330,14 @@ class ForwardInferenceProcessor:
 
         # Load samples
         samples = []
-        with open(f'dataset_all/{dataset}/{args.mode}/{dataset}_{args.mode}.jsonl', 'r') as f:
+        sample_file_path = f'dataset_all/{dataset}/{args.mode}/{dataset}_{args.mode}.jsonl'
+        if not os.path.exists(sample_file_path):
+            fallback_sample_path = f'dataset_all/{dataset}_{args.mode}.jsonl'
+            if os.path.exists(fallback_sample_path):
+                sample_file_path = fallback_sample_path
+                print(f"[INFO] Using fallback dataset path: {sample_file_path}")
+
+        with open(sample_file_path, 'r', encoding='utf-8') as f:
             for line in f:
                 samples.append(json.loads(line))
 
@@ -1327,6 +1348,11 @@ class ForwardInferenceProcessor:
 
         # Load or generate historical summaries
         historical_distribution_path = f'dataset_all/{args.dataset}/{args.dataset}_historical_summary.jsonl'
+        if not os.path.exists(historical_distribution_path):
+            fallback_his_path = f'dataset_all/{args.dataset}_historical_summary.jsonl'
+            if os.path.exists(fallback_his_path):
+                historical_distribution_path = fallback_his_path
+                
         if os.path.exists(historical_distribution_path):
             print(f"[INFO] Loading historical profiles from {historical_distribution_path}")
             with open(historical_distribution_path, 'r', encoding='utf-8') as f:
@@ -1335,7 +1361,13 @@ class ForwardInferenceProcessor:
             print(f"[INFO] Generating historical profiles...")
             historical_summary_list = React_process_and_save_profiles(args, historical_distribution_path)
 
-        # Load candidate list
+        # Load candidate list with fallback check
+        if not os.path.exists(candidate_output_json):
+            fallback_cand_json = f"dataset_all/{args.dataset}_{args.mode}_candidates_hsid.jsonl" if getattr(args, "use_hsid", False) else f"dataset_all/{args.dataset}_{args.mode}_candidates.jsonl"
+            if os.path.exists(fallback_cand_json):
+                candidate_output_json = fallback_cand_json
+                print(f"[INFO] Using fallback candidate json path: {candidate_output_json}")
+                
         user_to_candidate_map = load_candidate_list(candidate_output_json)
 
         # Prepare parameters for parallel processing
@@ -1464,6 +1496,22 @@ def main():
     parser.add_argument('--seed', type=int, default=0, help='Random seed')
     parser.add_argument('--use_hsid', action="store_true", help='Enable HSID representation in prompts')
     parser.add_argument('--hsid_path', type=str, default='', help='Path to poi_hsid.json')
+
+    # Agent API Key and Base URL parameters
+    parser.add_argument('--agent1_base_url', type=str, default='', help='Base URL for Agent 1')
+    parser.add_argument('--agent1_api_key', type=str, default='', help='API Key for Agent 1')
+    parser.add_argument('--agent2_base_url', type=str, default='', help='Base URL for Agent 2')
+    parser.add_argument('--agent2_api_key', type=str, default='', help='API Key for Agent 2')
+    parser.add_argument('--agent3_base_url', type=str, default='', help='Base URL for Agent 3')
+    parser.add_argument('--agent3_api_key', type=str, default='', help='API Key for Agent 3')
+
+    # Embedding and Reranker API parameters
+    parser.add_argument('--use_cloud_embedding', action="store_true", help='Use Cloud Embedding API')
+    parser.add_argument('--embedding_api_key', type=str, default='', help='API Key for Cloud Embedding / Reranker')
+    parser.add_argument('--embedding_base_url', type=str, default='', help='Base URL for Cloud Embedding')
+    parser.add_argument('--embedding_model_name', type=str, default='text-embedding-v3', help='Model name for Cloud Embedding')
+    parser.add_argument('--use_reranker', action="store_true", help='Use Cloud Rerank API to refine candidates')
+    parser.add_argument('--reranker_model', type=str, default='qwen3-rerank', help='Model name for Cloud Rerank')
 
     args = parser.parse_args()
     dataset = args.dataset

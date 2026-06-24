@@ -5,8 +5,8 @@ import pandas as pd
 class PromptProvider:
     def __init__(self, args, user_id, current_trajectory):
         self.user_id = user_id
-        self.current_trajectory = current_trajectory
         self.args = args
+        self.current_trajectory = self._get_compact_trajectory(current_trajectory)
 
     @staticmethod
     def _json_block(schema: str) -> str:
@@ -135,14 +135,66 @@ class PromptProvider:
         }
         return json.dumps(prompt_data, indent=2)
 
+    def _get_compact_trajectory(self, traj_str, max_len=10):
+        if not traj_str:
+            return ""
+        
+        import re
+        raw_lines = traj_str.strip().split("\n")
+        header = ""
+        trajectory_units = []
+        
+        for line in raw_lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
+            if line_str.startswith("<") and line_str.endswith(">"):
+                header = line_str
+                continue
+            
+            # Split robustly by '. At 20xx' or similar pattern
+            parts = re.split(r"\.\s*(?=At\s+\d{4})", line_str)
+            for part in parts:
+                p_clean = part.strip()
+                if p_clean:
+                    if not p_clean.endswith("."):
+                        p_clean += "."
+                    trajectory_units.append(p_clean)
+        
+        if len(trajectory_units) <= max_len:
+            compact_units = trajectory_units
+        else:
+            compact_units = trajectory_units[-max_len:]
+            
+        if header:
+            return f"{header}\n" + "\n".join(compact_units)
+        return "\n".join(compact_units)
+
     def get_a3p1_prompt(self, long_term_profile, short_term_profile, candidate_poi_list_agent1, candidate_poi_list_agent2,
                         fused_candidate_poi_list=None):
-        id_list = [f"\"{i + 1}th unique ID\"" for i in range(self.args.top_k)]
-        id_list[0] = "\"best unique ID\""
-        id_list_str = ", ".join(id_list)
-        system_prompt_format = self._json_block(
-            f'{{"next_poi_id": [{id_list_str}]}}'
-        )
+        poi_metadata_pool = {}
+        
+        def process_candidate_list(cand_list):
+            if not cand_list:
+                return []
+            cleaned_ids = []
+            for item in cand_list:
+                if isinstance(item, str) and item.startswith("poi_id:"):
+                    match_id = re.match(r"^poi_id:\s*(\w+)", item)
+                    if match_id:
+                        p_id = match_id.group(1)
+                        cleaned_ids.append(int(p_id) if p_id.isdigit() else p_id)
+                        
+                        match_details = re.search(r"\(([^)]+)\)", item)
+                        if match_details:
+                            poi_metadata_pool[p_id] = match_details.group(1)
+                else:
+                    cleaned_ids.append(item)
+            return cleaned_ids
+
+        clean_a1 = process_candidate_list(candidate_poi_list_agent1)
+        clean_a2 = process_candidate_list(candidate_poi_list_agent2)
+        clean_fused = process_candidate_list(fused_candidate_poi_list)
 
         prompt_data = {
             "IDENTITY and PURPOSE": "You are an expert POI Predictor specialized in combining insights from long-term user profiles, short-term mobility patterns, and candidate POIs to predict the next POI a user will visit.",
@@ -151,9 +203,9 @@ class PromptProvider:
             "CURRENT TRAJECTORY": self.current_trajectory,
             "Long-Term Profile": long_term_profile,
             "Short-Term Mobility Profile": short_term_profile,
-            "Candidate POIs from Profile Analysis": candidate_poi_list_agent1,
-            "Candidate POIs from Mobility Analysis": candidate_poi_list_agent2,
-            "Fused Candidate POIs": fused_candidate_poi_list or [],
+            "Candidate POIs from Profile Analysis": clean_a1,
+            "Candidate POIs from Mobility Analysis": clean_a2,
+            "Fused Candidate POIs": clean_fused,
             "STEPS": [
                 "1. Analyze the long-term profile to understand the user's general preferences and patterns.",
                 "2. Analyze the short-term mobility profile to understand the user's current context and needs.",
@@ -168,9 +220,13 @@ class PromptProvider:
                 "Provide only numeric POI IDs, not years, dates, times, coordinates, ranks, or explanations.",
                 "Ensure all IDs are unique positive integers.",
             ],
-            "OUTPUT_FORMAT": system_prompt_format,
+            "OUTPUT_FORMAT": f"Return exactly one JSON block in format: {{\"next_poi_id\": [best_unique_id, 2nd_unique_id, ...]}} containing exactly {self.args.top_k} unique POI IDs.",
         }
-        return json.dumps(prompt_data, indent=2)
+
+        if poi_metadata_pool:
+            prompt_data["POI Metadata Pool"] = poi_metadata_pool
+
+        return json.dumps(prompt_data, ensure_ascii=False)
 
     def agent_retry_prompt(self, invalid_poi_ids):
         id_list = [f"\"{i + 1}th unique ID\"" for i in range(self.args.top_k)]

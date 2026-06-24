@@ -1,9 +1,45 @@
 import json
+import re
+
+def get_compact_trajectory(traj_str, max_len=10):
+    if not traj_str:
+        return ""
+    
+    raw_lines = traj_str.strip().split("\n")
+    header = ""
+    trajectory_units = []
+    
+    for line in raw_lines:
+        line_str = line.strip()
+        if not line_str:
+            continue
+        if line_str.startswith("<") and line_str.endswith(">"):
+            header = line_str
+            continue
+        
+        # Split robustly by '. At 20xx'
+        parts = re.split(r"\.\s*(?=At\s+\d{4})", line_str)
+        for part in parts:
+            p_clean = part.strip()
+            if p_clean:
+                if not p_clean.endswith("."):
+                    p_clean += "."
+                trajectory_units.append(p_clean)
+                
+    if len(trajectory_units) <= max_len:
+        compact_units = trajectory_units
+    else:
+        compact_units = trajectory_units[-max_len:]
+        
+    if header:
+        return f"{header}\n" + "\n".join(compact_units)
+    return "\n".join(compact_units)
+
 class Forwar_prompter:
     def __init__(self, args, user_id, subtrajectory_id, current_trajectory, next_poi_info):
         self.user_id = user_id
         self.subtrajectory_id = subtrajectory_id
-        self.current_trajectory = current_trajectory
+        self.current_trajectory = get_compact_trajectory(current_trajectory)
         self.args = args
         self.next_poi_info = next_poi_info
 
@@ -150,7 +186,7 @@ class Inverse_prompter:
     def __init__(self, args, user_id, subtrajectory_id, current_trajectory, next_poi_info):
         self.user_id = user_id
         self.subtrajectory_id = subtrajectory_id
-        self.current_trajectory = current_trajectory
+        self.current_trajectory = get_compact_trajectory(current_trajectory)
         self.args = args
         self.next_poi_info = next_poi_info
 

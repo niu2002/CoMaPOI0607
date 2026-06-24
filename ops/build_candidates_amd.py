@@ -29,6 +29,14 @@ def parse_args():
     )
     parser.add_argument("--use_hsid", action="store_true", help="Enable HSID embedding text augmentation")
     parser.add_argument("--hsid_path", type=str, default="", help="Path to poi_hsid.json")
+    
+    # Cloud embedding and reranker arguments
+    parser.add_argument("--use_cloud_embedding", action="store_true", help="Use cloud embedding API instead of local model")
+    parser.add_argument("--embedding_api_key", type=str, default="", help="API key for cloud embedding API")
+    parser.add_argument("--embedding_base_url", type=str, default="", help="Base URL for cloud embedding API")
+    parser.add_argument("--embedding_model_name", type=str, default="text-embedding-v3", help="Model name for cloud embedding API")
+    parser.add_argument("--use_reranker", action="store_true", help="Enable reranking of retrieved candidates")
+    parser.add_argument("--reranker_model", type=str, default="qwen3-rerank", help="Model name for cloud reranker API")
     return parser.parse_args()
 
 
@@ -41,6 +49,12 @@ def main():
         embedding_query_instruction=args.embedding_query_instruction,
         use_hsid=args.use_hsid,
         hsid_path=args.hsid_path,
+        use_cloud_embedding=args.use_cloud_embedding,
+        embedding_api_key=args.embedding_api_key,
+        embedding_base_url=args.embedding_base_url,
+        embedding_model_name=args.embedding_model_name,
+        use_reranker=args.use_reranker,
+        reranker_model=args.reranker_model,
     )
     max_item = {"nyc": 5091, "tky": 7851, "ca": 13630}[args.dataset]
     finder = RAG_Finder(
