@@ -48,8 +48,8 @@
   * 重排模型（Reranker Model）：`qwen3-rerank`
   * 推理模型（Profiler/Forecaster/Predictor）：`qwen-plus`
 * **AMD 本地部署模型定死**：
-  * **Agent 1 (Profiler)**：`Qwen2.5-7B-Instruct` (本地 Base-only)
-  * **Agent 2 (Forecaster)**：`Qwen2.5-7B-Instruct` (本地 Base-only)
-  * **Agent 3 (Predictor)**：`Qwen2.5-7B-Instruct` 基座，附加基于 `paper_label_first_fused` 逆向微调的 LoRA 权重适配器。
+  * **Agent 1 (Profiler)**：`Qwen3-7B-Instruct` (本地 Base-only)
+  * **Agent 2 (Forecaster)**：`Qwen3-7B-Instruct` (本地 Base-only)
+  * **Agent 3 (Predictor)**：`Qwen3-7B-Instruct` 基座，附加基于 `paper_label_first_fused` 逆向微调 of LoRA 权重适配器。
   * **本地 Embedding 模型**：`Qwen3-Embedding-4B`
   * **本地 Rerank 模式**：不开启（即 `use_reranker=False`）。

@@ -61,10 +61,10 @@ mkdir -p /mnt/workspace/comapoilatest/models
 # 2. 运行 Python 下载本地大模型（下载路径为 /mnt/workspace/comapoilatest/models）
 python -c "
 from modelscope import snapshot_download
-print('Downloading Qwen2.5-7B-Instruct...')
-snapshot_download('Qwen/Qwen2.5-7B-Instruct', cache_dir='/mnt/workspace/comapoilatest/models')
+print('Downloading Qwen3-7B-Instruct...')
+snapshot_download('Qwen/Qwen3-7B-Instruct', cache_dir='/mnt/workspace/comapoilatest/models')
 print('Downloading Qwen3-Embedding-4B...')
-snapshot_download('Qwen/Qwen2.5-Math-1.5B-Instruct', cache_dir='/mnt/workspace/comapoilatest/models')
+snapshot_download('Qwen/Qwen3-Embedding-4B', cache_dir='/mnt/workspace/comapoilatest/models')
 "
 ```
 
@@ -78,14 +78,14 @@ snapshot_download('Qwen/Qwen2.5-Math-1.5B-Instruct', cache_dir='/mnt/workspace/c
 为了防止 vLLM 完全锁定 GPU 显存从而阻碍下游 RAG 向量模块的矩阵计算，**必须指定 `--gpu-memory-utilization 0.78`** 限制其显存占用：
 
 ```bash
-# 启动本地 Qwen2.5-7B-Instruct 推理服务（定死端口为 7863）
+# 启动本地 Qwen3-7B-Instruct 推理服务（定死端口为 7863）
 # 如果你已经训练好了 LoRA 适配器，挂载参数：--lora-modules agent3_lora=/mnt/workspace/comapoilatest/CoMaPOI0607/finetune/results --enable-lora
 
 CUDA_VISIBLE_DEVICES=0 python -m vllm.entrypoints.openai.api_server \
-  --model /mnt/workspace/comapoilatest/models/Qwen/Qwen2.5-7B-Instruct \
+  --model /mnt/workspace/comapoilatest/models/Qwen/Qwen3-7B-Instruct \
   --port 7863 \
   --gpu-memory-utilization 0.78 \
-  --served-model-name qwen2.5-7b-instruct
+  --served-model-name qwen3-7b-instruct
 ```
 
 ---
@@ -100,7 +100,7 @@ CUDA_VISIBLE_DEVICES=0 python -m vllm.entrypoints.openai.api_server \
 python inference_forward_new.py --dataset ca --num_samples 10 --batch_size 2 --candidate_fusion_strategy rrf --use_hsid \
   --agent1_base_url "https://dashscope.aliyuncs.com/compatible-mode/v1" --agent1_api_key "sk-6cfeba9834fd460cbe856c99be17aa74" --agent1_api "qwen-plus" \
   --agent2_base_url "https://dashscope.aliyuncs.com/compatible-mode/v1" --agent2_api_key "sk-6cfeba9834fd460cbe856c99be17aa74" --agent2_api "qwen-plus" \
-  --agent3_base_url "http://localhost:7863/v1" --agent3_api_key "EMPTY" --agent3_api "qwen2.5-7b-instruct" \
+  --agent3_base_url "http://localhost:7863/v1" --agent3_api_key "EMPTY" --agent3_api "qwen3-7b-instruct" \
   --save_name local_smoke --store_save_name
 ```
 
@@ -111,7 +111,7 @@ python inference_forward_new.py --dataset ca --num_samples 10 --batch_size 2 --c
   python inference_forward_new.py --dataset ca --num_samples 900 --batch_size 4 --candidate_fusion_strategy rrf --use_hsid \
     --agent1_base_url "https://dashscope.aliyuncs.com/compatible-mode/v1" --agent1_api_key "sk-6cfeba9834fd460cbe856c99be17aa74" --agent1_api "qwen-plus" \
     --agent2_base_url "https://dashscope.aliyuncs.com/compatible-mode/v1" --agent2_api_key "sk-6cfeba9834fd460cbe856c99be17aa74" --agent2_api "qwen-plus" \
-    --agent3_base_url "http://localhost:7863/v1" --agent3_api_key "EMPTY" --agent3_api "qwen2.5-7b-instruct" \
+    --agent3_base_url "http://localhost:7863/v1" --agent3_api_key "EMPTY" --agent3_api "qwen3-7b-instruct" \
     --save_name amd_rag_lora --store_save_name
   ```
 
@@ -124,7 +124,7 @@ python inference_forward_new.py --dataset ca --num_samples 10 --batch_size 2 --c
   python inference_forward_new.py --dataset ca --num_samples 900 --batch_size 4 --candidate_fusion_strategy rrf --use_hsid \
     --agent1_base_url "https://dashscope.aliyuncs.com/compatible-mode/v1" --agent1_api_key "sk-6cfeba9834fd460cbe856c99be17aa74" --agent1_api "qwen-plus" \
     --agent2_base_url "https://dashscope.aliyuncs.com/compatible-mode/v1" --agent2_api_key "sk-6cfeba9834fd460cbe856c99be17aa74" --agent2_api "qwen-plus" \
-    --agent3_base_url "http://localhost:7863/v1" --agent3_api_key "EMPTY" --agent3_api "qwen2.5-7b-instruct" \
+    --agent3_base_url "http://localhost:7863/v1" --agent3_api_key "EMPTY" --agent3_api "qwen3-7b-instruct" \
     --save_name amd_no_rag_lora --store_save_name
 
   # 3. 评测结束后恢复
