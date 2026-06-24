@@ -22,7 +22,7 @@ def format_historical_info(historical_dist):
         
     # If historical_dist is a list (e.g. of dictionaries representing trajectories)
     if isinstance(historical_dist, list):
-        checkins = set()
+        checkins = []
         pattern = r"At \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}, [A-Za-z]+, user \d+ visit POI ID \d+ \([^)]+\)\.?"
         for item in historical_dist:
             if isinstance(item, dict) and "messages" in item:
@@ -33,17 +33,17 @@ def format_historical_info(historical_dist):
                             m_clean = m.strip()
                             if m_clean.endswith("."):
                                 m_clean = m_clean[:-1].strip()
-                            checkins.add(m_clean)
+                            checkins.append(m_clean)
             elif isinstance(item, str):
                 for m in re.findall(pattern, item):
                     m_clean = m.strip()
                     if m_clean.endswith("."):
                         m_clean = m_clean[:-1].strip()
-                    checkins.add(m_clean)
+                    checkins.append(m_clean)
         
         if checkins:
             # Sort chronologically by the timestamp prefix
-            sorted_checkins = sorted(list(checkins))
+            sorted_checkins = sorted(checkins)
             return "\n".join(sorted_checkins)
             
     # Fallback to json.dumps
