@@ -8,9 +8,9 @@
   * 创新点与实验方案：`rawpaper/创新点.md`（含语义 ID/HSID 与 ExpertRAG，具体修改以实际情况为准）。
 
 ## 2. 远程算力服务器环境
-* **服务器项目路径**：`/mnt/workspace/comapoilatest/CoMaPOI0607`
-* **基础模型路径**：`/mnt/workspace/comapoilatest/models/Llama-3.1-8B-Instruct`
-* **Embedding 模型路径**：`/mnt/workspace/comapoilatest/models/Qwen3-Embedding-4B`
+* **服务器项目路径**：`/mnt/workspace/CoMaPOI0607`
+* **基础模型路径**：`/mnt/workspace/models/Llama-3.1-8B-Instruct`
+* **Embedding 模型路径**：`/mnt/workspace/models/Qwen3-Embedding-4B`
 * **运行环境**：ModelScope AMD GPU / ROCm / vLLM OpenAI-compatible server
 
 ## 3. 协作与开发流程 (良性循环)

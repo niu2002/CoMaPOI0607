@@ -13,7 +13,7 @@
 
 ```bash
 # 1. 进入服务器工作区目录
-cd /mnt/workspace/comapoilatest/CoMaPOI0607
+cd /mnt/workspace/CoMaPOI0607
 
 # 2. 拉取最新分支
 git fetch origin
@@ -56,15 +56,15 @@ ModelScope 已经作为 Library 预装在你的虚拟环境中，我们使用 Py
 
 ```bash
 # 1. 创建大模型存储目录
-mkdir -p /mnt/workspace/comapoilatest/models
+mkdir -p /mnt/workspace/models
 
-# 2. 运行 Python 下载本地大模型（下载路径为 /mnt/workspace/comapoilatest/models）
+# 2. 运行 Python 下载本地大模型（下载路径为 /mnt/workspace/models）
 python -c "
 from modelscope import snapshot_download
 print('Downloading Qwen3-7B-Instruct...')
-snapshot_download('Qwen/Qwen3-7B-Instruct', cache_dir='/mnt/workspace/comapoilatest/models')
+snapshot_download('Qwen/Qwen3-7B-Instruct', cache_dir='/mnt/workspace/models')
 print('Downloading Qwen3-Embedding-4B...')
-snapshot_download('Qwen/Qwen3-Embedding-4B', cache_dir='/mnt/workspace/comapoilatest/models')
+snapshot_download('Qwen/Qwen3-Embedding-4B', cache_dir='/mnt/workspace/models')
 "
 ```
 
@@ -79,10 +79,10 @@ snapshot_download('Qwen/Qwen3-Embedding-4B', cache_dir='/mnt/workspace/comapoila
 
 ```bash
 # 启动本地 Qwen3-7B-Instruct 推理服务（定死端口为 7863）
-# 如果你已经训练好了 LoRA 适配器，挂载参数：--lora-modules agent3_lora=/mnt/workspace/comapoilatest/CoMaPOI0607/finetune/results --enable-lora
+# 如果你已经训练好了 LoRA 适配器，挂载参数：--lora-modules agent3_lora=/mnt/workspace/CoMaPOI0607/finetune/results --enable-lora
 
 CUDA_VISIBLE_DEVICES=0 python -m vllm.entrypoints.openai.api_server \
-  --model /mnt/workspace/comapoilatest/models/Qwen/Qwen3-7B-Instruct \
+  --model /mnt/workspace/models/Qwen/Qwen3-7B-Instruct \
   --port 7863 \
   --gpu-memory-utilization 0.78 \
   --served-model-name qwen3-7b-instruct

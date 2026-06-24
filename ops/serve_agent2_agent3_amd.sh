@@ -6,7 +6,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 export DATASET="${DATASET:-ca}"
-export MODEL_ROOT="${MODEL_ROOT:-/mnt/workspace/comapoilatest/models}"
+export MODEL_ROOT="${MODEL_ROOT:-/mnt/workspace/models}"
 export MODEL_NAME="${MODEL_NAME:-Llama-3.1-8B-Instruct}"
 export SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-llama3.1-8b}"
 export PORT="${PORT:-7863}"

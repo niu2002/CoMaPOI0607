@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 export DATASET="${DATASET:-ca}"
-export MODEL_ROOT="${MODEL_ROOT:-/mnt/workspace/comapoilatest/models}"
+export MODEL_ROOT="${MODEL_ROOT:-/mnt/workspace/models}"
 export MODEL_NAME="${MODEL_NAME:-Llama-3.1-8B-Instruct}"
 export DEVICE_MAP="${DEVICE_MAP:-cuda}"
 export OP_STR="${OP_STR:-amd-agent23-ca-v1}"
