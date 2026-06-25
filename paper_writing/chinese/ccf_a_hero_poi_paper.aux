@@ -1,0 +1,66 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand*\HyPL@Entry[1]{}
+\HyPL@Entry{0<</S/D>>}
+\@writefile{toc}{\contentsline {section}{\numberline {1}引言}{1}{section.1}\protected@file@percent }
+\citation{gnprsid}
+\citation{ros}
+\citation{rallmpoi}
+\@writefile{toc}{\contentsline {section}{\numberline {2}相关工作}{2}{section.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}下一 POI 预测}{2}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}语义 ID 与地理语义表示}{2}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}检索增强与大语言模型推荐}{2}{subsection.2.3}\protected@file@percent }
+\citation{expertrag}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}专家路由与多证据融合}{3}{subsection.2.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}问题定义}{3}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}方法}{3}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}总体框架}{3}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}从离散 POI 到层次语义节点}{3}{subsection.4.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces SEER-POI的总体框架。HSID将 POI 从平坦编号扩展为层次语义节点; 多证据路由候选生成模块根据轨迹上下文融合空间、语义、转移与时间证据; 候选池压缩模块控制提示长度并为候选条件化排序提供紧凑输入。}}{4}{figure.caption.2}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:framework}{{1}{4}{\method 的总体框架。\hsid 将 POI 从平坦编号扩展为层次语义节点; 多证据路由候选生成模块根据轨迹上下文融合空间、语义、转移与时间证据; 候选池压缩模块控制提示长度并为候选条件化排序提供紧凑输入。}{figure.caption.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces HSID的构建直觉。原始 POI ID 保留位置个体性, 层次语义码提供区域、类别和语义簇共享结构。}}{4}{figure.caption.3}\protected@file@percent }
+\newlabel{fig:hsid}{{2}{4}{\hsid 的构建直觉。原始 POI ID 保留位置个体性, 层次语义码提供区域、类别和语义簇共享结构。}{figure.caption.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}HSID的两种注入方式}{4}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}轨迹上下文解析}{4}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}多证据路由候选生成}{4}{subsection.4.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}候选池压缩与提示构造}{5}{subsection.4.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.7}候选条件化排序}{5}{subsection.4.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.8}训练目标与诊断指标}{5}{subsection.4.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.9}算法流程}{5}{subsection.4.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}复杂度分析}{5}{section.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces SEER-POI的模块化推理流程。该流程将候选召回、候选压缩和最终排序分开, 便于定位性能瓶颈。}}{6}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:algorithm}{{3}{6}{\method 的模块化推理流程。该流程将候选召回、候选压缩和最终排序分开, 便于定位性能瓶颈。}{figure.caption.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}实验与讨论}{6}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}数据集与设定}{6}{subsection.6.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces 数据集统计信息。}}{6}{table.caption.5}\protected@file@percent }
+\newlabel{tab:dataset}{{1}{6}{数据集统计信息。}{table.caption.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}评价指标}{6}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}对比方法}{6}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4}总体性能}{6}{subsection.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.5}候选召回诊断}{6}{subsection.6.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.6}消融实验}{6}{subsection.6.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.7}提示长度与效率}{6}{subsection.6.7}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces 总体性能比较。}}{7}{table.caption.6}\protected@file@percent }
+\newlabel{tab:overall}{{2}{7}{总体性能比较。}{table.caption.6}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces 候选召回比较。}}{7}{table.caption.7}\protected@file@percent }
+\newlabel{tab:recall}{{3}{7}{候选召回比较。}{table.caption.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.8}为什么不直接命名为 HSID 方法}{7}{subsection.6.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.9}为什么不直接命名为 ExpertRAG}{7}{subsection.6.9}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces 模块消融实验。}}{7}{table.caption.8}\protected@file@percent }
+\newlabel{tab:ablation}{{4}{7}{模块消融实验。}{table.caption.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.10}候选生成为什么是核心贡献}{7}{subsection.6.10}\protected@file@percent }
+\bibcite{gnprsid}{1}
+\bibcite{ros}{2}
+\bibcite{rallmpoi}{3}
+\bibcite{expertrag}{4}
+\bibcite{st_rnn}{5}
+\bibcite{deepmove}{6}
+\bibcite{stan}{7}
+\bibcite{flashback}{8}
+\bibcite{getnext}{9}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces 提示长度与效率分析。}}{8}{table.caption.9}\protected@file@percent }
+\newlabel{tab:efficiency}{{5}{8}{提示长度与效率分析。}{table.caption.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.11}局限性与未来工作}{8}{subsection.6.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}结论}{8}{section.7}\protected@file@percent }
+\gdef \@abspage@last{8}
