@@ -23,3 +23,15 @@ res/
 # Large pre-computed index files (User manual upload)
 dataset_all/ca/poi_faiss_index_hsid.bin.npy
 dataset_all/ca/poi_faiss_index_hsid.bin
+
+# Exported chats and logs
+exported_chat_*.md
+
+# Local finetuning outputs and runs
+finetune/
+results/
+runs/
+scratch/
+
+# Untracked datasets
+dataset_all/ca/ca_historical_summary.jsonl
