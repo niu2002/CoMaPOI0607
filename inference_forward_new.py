@@ -1495,7 +1495,7 @@ def main():
     parser.add_argument('--port', type=int, default=7863, help='Port for API server')
     parser.add_argument('--agent1_max_tokens', type=int, default=256, help='Max tokens for Agent 1')
     parser.add_argument('--agent2_max_tokens', type=int, default=256, help='Max tokens for Agent 2')
-    parser.add_argument('--agent3_max_tokens', type=int, default=256, help='Max tokens for Agent 3')
+    parser.add_argument('--agent3_max_tokens', type=int, default=1024, help='Max tokens for Agent 3')
     parser.add_argument('--profile_max_tokens', type=int, default=220, help='Target token budget for white-box profile summaries')
     parser.add_argument('--candidate_fusion_strategy', type=str, default='none', choices=['none', 'union', 'rrf'], help='Candidate fusion strategy before final prediction')
     parser.add_argument('--fused_candidate_top_k', type=int, default=50, help='Number of fused candidates to provide to Agent 3')

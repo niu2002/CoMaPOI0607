@@ -28,21 +28,46 @@ def extract_json_field(content, key_name):
             try:
                 data = json.loads(candidate)
             except (json.JSONDecodeError, TypeError):
-                continue
+                # Attempt to repair truncated JSON (common when max_tokens cuts off during lists/objects)
+                repaired = candidate.strip()
+                # 1. Handle unclosed lists or objects by appending brackets
+                open_brackets = repaired.count('[') - repaired.count(']')
+                open_braces = repaired.count('{') - repaired.count('}')
+                if open_brackets > 0:
+                    repaired += ']' * open_brackets
+                if open_braces > 0:
+                    repaired += '}' * open_braces
+                
+                # 2. Try parsing again after closing brackets
+                try:
+                    data = json.loads(repaired)
+                except (json.JSONDecodeError, TypeError):
+                    # 3. Fallback: Heuristic regex extraction of list elements directly from truncated text
+                    list_pattern = rf'"{re.escape(key_name)}"\s*:\s*\[([^\]]*)(?:$|\n)'
+                    list_match = re.search(list_pattern, candidate, flags=re.DOTALL)
+                    if list_match:
+                        raw_items = list_match.group(1).strip()
+                        # Extract digits and filter out empty strings
+                        digits = re.findall(r'\b\d+\b', raw_items)
+                        if digits:
+                            return [int(d) for d in digits]
+                    continue
 
         if isinstance(data, dict) and key_name in data:
             return data[key_name]
 
     if isinstance(content, str):
-        list_pattern = rf'"{re.escape(key_name)}"\s*:\s*\[([^\]]*)\]'
+        list_pattern = rf'"{re.escape(key_name)}"\s*:\s*\[([^\]]*)(?:$|\]|\n)'
         list_match = re.search(list_pattern, content, flags=re.DOTALL)
         if list_match:
             raw_items = list_match.group(1).strip()
-            if not raw_items:
-                return []
-            return [item.strip() for item in re.split(r',\s*', raw_items) if item.strip()]
+            # Clean up potential trailing commas and resolve numeric items
+            digits = re.findall(r'\b\d+\b', raw_items)
+            if digits:
+                return [int(d) for d in digits]
+            return [item.strip().strip('"').strip("'") for item in re.split(r',\s*', raw_items) if item.strip()]
 
-        str_pattern = rf'"{re.escape(key_name)}"\s*:\s*"([\s\S]*?)"'
+        str_pattern = rf'"{re.escape(key_name)}"\s*:\s*"([\s\S]*?)(?:"|$)'
         str_match = re.search(str_pattern, content, flags=re.DOTALL)
         if str_match:
             return str_match.group(1).strip()
