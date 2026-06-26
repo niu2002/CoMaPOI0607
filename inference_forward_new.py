@@ -1323,10 +1323,12 @@ class ForwardInferenceProcessor:
         metrics_csv = f'{results_path}/metrics.csv'
         diagnostics_json = f'{results_path}/diagnostics.json'
 
+        strategy = getattr(args, "strategy", "rag")
+        strategy_suffix = f"_{strategy}" if strategy != "rag" else ""
         if getattr(args, "use_hsid", False):
-            candidate_output_json = data_path + f"/{args.dataset}_{args.mode}_candidates_hsid.jsonl"
+            candidate_output_json = data_path + f"/{args.dataset}_{args.mode}_candidates_hsid{strategy_suffix}.jsonl"
         else:
-            candidate_output_json = data_path + f"/{args.dataset}_{args.mode}_candidates.jsonl"
+            candidate_output_json = data_path + f"/{args.dataset}_{args.mode}_candidates{strategy_suffix}.jsonl"
 
         # Load samples
         samples = []
@@ -1363,7 +1365,7 @@ class ForwardInferenceProcessor:
 
         # Load candidate list with fallback check
         if not os.path.exists(candidate_output_json):
-            fallback_cand_json = f"dataset_all/{args.dataset}_{args.mode}_candidates_hsid.jsonl" if getattr(args, "use_hsid", False) else f"dataset_all/{args.dataset}_{args.mode}_candidates.jsonl"
+            fallback_cand_json = f"dataset_all/{args.dataset}_{args.mode}_candidates_hsid{strategy_suffix}.jsonl" if getattr(args, "use_hsid", False) else f"dataset_all/{args.dataset}_{args.mode}_candidates{strategy_suffix}.jsonl"
             if os.path.exists(fallback_cand_json):
                 candidate_output_json = fallback_cand_json
                 print(f"[INFO] Using fallback candidate json path: {candidate_output_json}")
