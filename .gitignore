@@ -15,7 +15,6 @@ agent.md
 # Intermediate dataset layouts & copies
 dataset_all/ca/train/
 dataset_all/ca/test/
-dataset_all/ca/ca_poi_info.csv
 
 # Temporary resources
 res/
