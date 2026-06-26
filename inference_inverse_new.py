@@ -1034,8 +1034,7 @@ class InverseInferenceProcessor:
 
         if self.args.num_samples == 1:
             selected_sample = samples[0]
-            user_id = selected_sample['user_id']
-            subtrajectory_id = selected_sample['subtrajectory_id']
+            user_id, subtrajectory_id, _, _ = parse_user_and_trajectory_train(selected_sample.get('messages', []))
             unique_key = f"U_{user_id}_S_{subtrajectory_id}"
 
             if unique_key not in generated_informations:
@@ -1045,8 +1044,7 @@ class InverseInferenceProcessor:
         else:
             for i in range(self.args.start_point, self.args.num_samples):
                 selected_sample = samples[i % len(samples)]
-                user_id = selected_sample['user_id']
-                subtrajectory_id = selected_sample['subtrajectory_id']
+                user_id, subtrajectory_id, _, _ = parse_user_and_trajectory_train(selected_sample.get('messages', []))
                 unique_key = f"U_{user_id}_S_{subtrajectory_id}"
 
                 if unique_key in generated_informations:
