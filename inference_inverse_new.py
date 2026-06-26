@@ -1014,40 +1014,74 @@ class InverseInferenceProcessor:
 
         user_to_candidate_map = load_candidate_list(candidate_output_json)
 
-        # Prepare parameters for parallel processing
+        # Setup paths
+        results_file_path = os.path.join(results_path, f"ALL_generated_informations.json")
+
+        # Load existing results for breakpoint resume
+        generated_informations = {}
+        if os.path.exists(results_file_path):
+            try:
+                with open(results_file_path, 'r', encoding='utf-8') as f:
+                    generated_informations = json.load(f)
+                print(f"[INFO] Loaded {len(generated_informations)} existing records from {results_file_path}")
+            except Exception as e:
+                print(f"[WARNING] Failed to load existing results from {results_file_path}: {e}. Starting fresh.")
+                generated_informations = {}
+
+        # Prepare parameters for parallel processing, filtering out already completed samples
+        params_list = []
+        skipped_count = 0
+
         if self.args.num_samples == 1:
-            params_list = [(samples[0], self.args, user_to_candidate_map)]
+            selected_sample = samples[0]
+            user_id = selected_sample['user_id']
+            subtrajectory_id = selected_sample['subtrajectory_id']
+            unique_key = f"U_{user_id}_S_{subtrajectory_id}"
+
+            if unique_key not in generated_informations:
+                params_list = [(selected_sample, self.args, user_to_candidate_map)]
+            else:
+                skipped_count = 1
         else:
-            params_list = []
             for i in range(self.args.start_point, self.args.num_samples):
                 selected_sample = samples[i % len(samples)]
+                user_id = selected_sample['user_id']
+                subtrajectory_id = selected_sample['subtrajectory_id']
+                unique_key = f"U_{user_id}_S_{subtrajectory_id}"
+
+                if unique_key in generated_informations:
+                    skipped_count += 1
+                    continue
+
                 params = (selected_sample, self.args, user_to_candidate_map)
                 params_list.append(params)
 
-        generated_informations = {}
+        print(f"[INFO] Skipped {skipped_count} already completed samples. Remaining to process: {len(params_list)}")
 
-        # Run parallel processing with the standalone worker function
-        with ProcessPoolExecutor(max_workers=self.args.batch_size) as executor:
-            futures = [executor.submit(single_predict_worker, params) for params in params_list]
+        if len(params_list) > 0:
+            # Run parallel processing with the standalone worker function
+            with ProcessPoolExecutor(max_workers=self.args.batch_size) as executor:
+                futures = [executor.submit(single_predict_worker, params) for params in params_list]
 
-            # Use green progress bar with tqdm
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Generating data", colour="green"):
-                user_id, subtrajectory_id, label, current_trajectory, prompts_list, forward_prompts_list, outputs_list, rag_candidates = future.result()
+                # Use green progress bar with tqdm
+                for future in tqdm(as_completed(futures), total=len(futures), desc="Generating data", colour="green"):
+                    user_id, subtrajectory_id, label, current_trajectory, prompts_list, forward_prompts_list, outputs_list, rag_candidates = future.result()
 
-                unique_key = f"U_{user_id}_S_{subtrajectory_id}"
-                generated_informations[unique_key] = {
-                    "user_id": user_id,
-                    "subtrajectory_id": subtrajectory_id,
-                    "label": label,
-                    "current_trajectory": current_trajectory,
-                    "prompts_list": prompts_list,
-                    "forward_prompts_list": forward_prompts_list,
-                    "outputs_list": outputs_list,
-                    "rag_candidates": rag_candidates,
-                }
+                    unique_key = f"U_{user_id}_S_{subtrajectory_id}"
+                    generated_informations[unique_key] = {
+                        "user_id": user_id,
+                        "subtrajectory_id": subtrajectory_id,
+                        "label": label,
+                        "current_trajectory": current_trajectory,
+                        "prompts_list": prompts_list,
+                        "forward_prompts_list": forward_prompts_list,
+                        "outputs_list": outputs_list,
+                        "rag_candidates": rag_candidates,
+                    }
+        else:
+            print("[INFO] All target samples are already processed. No API requests needed.")
 
-        # Save results
-        results_file_path = os.path.join(results_path, f"ALL_generated_informations.json")
+        # Save results (overwrite with merged results)
         self.save_generated_informations_to_json(generated_informations, results_file_path)
 
         # Save generated samples
