@@ -437,7 +437,7 @@ def complete_negative_poi_list(negative_poi_list, generator_poi_list_from_profil
     # Return list trimmed to target_length
     return negative_poi_list[:target_length]
 
-def process_and_save_profiles(args, generator):
+def process_and_save_profiles(args, generator, verbose=True):
     """
     Process and save user profiles.
     Retrieves or generates user profiles and saves them to a file.
@@ -445,6 +445,7 @@ def process_and_save_profiles(args, generator):
     Args:
         args: Command line arguments
         generator: The generator agent
+        verbose (bool): Whether to log status messages to console
 
     Returns:
         list: List of user profiles
@@ -453,21 +454,26 @@ def process_and_save_profiles(args, generator):
     start_point = args.start_point
     n = args.num_samples  # Total number of users in the dataset
     output_file = f'dataset_all/{data}/{data}_historical_summary.jsonl'
+    
     # Ensure the directory exists
     # If file already exists, read content and return
     if os.path.exists(output_file):
-        print(f"[INFO] Output file {output_file} already exists. Reading from file.")
+        if verbose:
+            print(f"[INFO] Output file {output_file} already exists. Reading from file.")
         try:
             with open(output_file, 'r', encoding='utf-8') as f:
                 results = [json.loads(line) for line in f]
-            print(f"[INFO] Successfully loaded {len(results)} user profiles from {output_file}.")
+            if verbose:
+                print(f"[INFO] Successfully loaded {len(results)} user profiles from {output_file}.")
             return results
         except Exception as e:
-            print(f"[ERROR] Failed to read {output_file}: {e}")
+            if verbose:
+                print(f"[ERROR] Failed to read {output_file}: {e}")
             return []
 
     # If file doesn't exist, generate data
-    print(f"[INFO] Output file {output_file} does not exist. Generating user profiles...")
+    if verbose:
+        print(f"[INFO] Output file {output_file} does not exist. Generating user profiles...")
     results = []  # List to store user profiles
 
     for i in range(start_point, n):
@@ -499,7 +505,8 @@ def process_and_save_profiles(args, generator):
         with open(output_file, 'w', encoding='utf-8') as f:
             for result in results:
                 f.write(json.dumps(result) + '\n')
-        print(f"[INFO] All profiles have been saved to {output_file}.")
+        if verbose:
+            print(f"[INFO] All profiles have been saved to {output_file}.")
     else:
         pass
         # No profiles generated, output file not created
@@ -530,7 +537,7 @@ def single_predict_worker(params):
         generator_value.memory.clear()
 
         # Get historical summary
-        historical_summary_list = process_and_save_profiles(args, generator)
+        historical_summary_list = process_and_save_profiles(args, generator, verbose=False)
         his_summary = next((item for item in historical_summary_list if str(item["user_id"]) == user_id), None)
 
         # Progress is shown by tqdm
@@ -1013,6 +1020,11 @@ class InverseInferenceProcessor:
                 print(f"[INFO] Using fallback candidate json path: {candidate_output_json}")
 
         user_to_candidate_map = load_candidate_list(candidate_output_json)
+
+        # Pre-generate historical summary cache in the main process to prevent concurrent write race conditions in workers
+        print("[INFO] Pre-generating historical summary cache in the main process...")
+        temp_generator, _ = init_agents(self.args)
+        process_and_save_profiles(self.args, temp_generator, verbose=True)
 
         # Setup paths
         results_file_path = os.path.join(results_path, f"ALL_generated_informations.json")
