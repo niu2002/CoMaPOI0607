@@ -471,8 +471,8 @@ class RAG_Finder:
         results_map = {}
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # Use 16 threads to parallelize HTTP embedding API requests
-        max_workers = 16
+        # Use 4 threads to parallelize HTTP embedding API requests without hitting rate limits (429)
+        max_workers = 4
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(self.process_single_sample, sample): idx for idx, sample in enumerate(samples)}
 
