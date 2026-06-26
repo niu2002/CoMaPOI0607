@@ -1088,6 +1088,10 @@ class InverseInferenceProcessor:
                         "outputs_list": outputs_list,
                         "rag_candidates": rag_candidates,
                     }
+
+                    # Periodic checkpoint save to prevent data loss on unexpected crash or kill
+                    if len(generated_informations) % 10 == 0:
+                        self.save_generated_informations_to_json(generated_informations, results_file_path)
         else:
             print("[INFO] All target samples are already processed. No API requests needed.")
 
