@@ -468,11 +468,25 @@ class RAG_Finder:
 
         print(f"Generating candidates for {num_samples} samples from {self.sample_file} ...")
 
-        results = []
-        for sample in tqdm(samples, total=len(samples), desc="Processing samples", ascii=True, dynamic_ncols=True):
-            result = self.process_single_sample(sample)
-            if result:
-                results.append(result)
+        results_map = {}
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Use 16 threads to parallelize HTTP embedding API requests
+        max_workers = 16
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(self.process_single_sample, sample): idx for idx, sample in enumerate(samples)}
+
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing samples", ascii=True, dynamic_ncols=True):
+                idx = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        results_map[idx] = result
+                except Exception as exc:
+                    print(f"[ERROR] Sample index {idx} failed in threading: {exc}")
+
+        # Re-assemble in original order
+        results = [results_map[i] for i in range(len(samples)) if i in results_map]
 
         output_dir = self.data_root / self.mode
         output_dir.mkdir(parents=True, exist_ok=True)
