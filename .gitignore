@@ -10,18 +10,27 @@ models/qwen3-2.5B-intro
 
 # Gemini config
 .agents/
-agent.md
 
 # Intermediate dataset layouts & copies
 dataset_all/ca/train/
 dataset_all/ca/test/
+dataset_all/nyc/train/
+dataset_all/nyc/test/
+dataset_all/tky/train/
+dataset_all/tky/test/
 
 # Temporary resources
 res/
+tmp/
+.playwright-mcp/
 
 # Large pre-computed index files (User manual upload)
 dataset_all/ca/poi_faiss_index_hsid.bin.npy
 dataset_all/ca/poi_faiss_index_hsid.bin
+dataset_all/nyc/poi_faiss_index_hsid.bin.npy
+dataset_all/nyc/poi_faiss_index_hsid.bin
+dataset_all/tky/poi_faiss_index_hsid.bin.npy
+dataset_all/tky/poi_faiss_index_hsid.bin
 
 # Exported chats and logs
 exported_chat_*.md
@@ -34,3 +43,5 @@ scratch/
 
 # Untracked datasets
 dataset_all/ca/ca_historical_summary.jsonl
+dataset_all/nyc/nyc_historical_summary.jsonl
+dataset_all/tky/tky_historical_summary.jsonl
