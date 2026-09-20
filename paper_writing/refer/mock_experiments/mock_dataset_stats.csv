@@ -1,0 +1,4 @@
+dataset,users,pois,checkins,train,validation,test,history,long_tail,geosemid_samples,teacher_samples,ranker_coverage,router_coverage,status
+NYC,[TBD],[TBD],[TBD],3870,[TBD],988,[TBD],[TBD],[TBD],[TBD],0.688,0.746,MOCK -- NOT EMPIRICAL CLAIMS
+TKY,[TBD],[TBD],[TBD],11850,[TBD],2206,[TBD],[TBD],[TBD],[TBD],0.671,0.732,MOCK -- NOT EMPIRICAL CLAIMS
+CA,[TBD],[TBD],[TBD],6616,[TBD],1818,[TBD],[TBD],[TBD],[TBD],0.641,0.711,MOCK -- NOT EMPIRICAL CLAIMS

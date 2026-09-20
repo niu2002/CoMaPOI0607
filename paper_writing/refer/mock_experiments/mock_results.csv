@@ -1,0 +1,4 @@
+dataset,method,recall_at_10,recall_at_25,recall_at_50,end_to_end_hr_at_10,ndcg_at_10,mrr,ranker_coverage,router_coverage,status
+CA,GeoSemID_full_mock,0.4120,0.5360,0.6410,0.3440,0.2310,0.1960,0.6410,0.7110,MOCK_NOT_EMPIRICAL
+NYC,GeoSemID_full_mock,0.4580,0.5810,0.6880,0.4010,0.2790,0.2410,0.6880,0.7460,MOCK_NOT_EMPIRICAL
+TKY,GeoSemID_full_mock,0.4410,0.5630,0.6710,0.3860,0.2610,0.2230,0.6710,0.7320,MOCK_NOT_EMPIRICAL

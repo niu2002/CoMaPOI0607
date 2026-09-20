@@ -1,0 +1,5 @@
+variant,valid,consistency,hr10,latency_ms,status
+Local labels,0.93,0.89,0.31,76,MOCK -- NOT EMPIRICAL CLAIMS
+Reverse teacher,0.96,0.94,0.34,76,MOCK -- NOT EMPIRICAL CLAIMS
+Reverse+evidence,0.97,0.95,0.36,82,MOCK -- NOT EMPIRICAL CLAIMS
+Teacher reference,0.99,0.98,0.39,840,MOCK -- NOT EMPIRICAL CLAIMS

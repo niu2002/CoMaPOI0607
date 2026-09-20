@@ -1,0 +1,5 @@
+# Install a PyTorch build appropriate for your platform (ROCm for AMD GPU systems).
+torch>=2.4
+jupyter>=1.0
+ipykernel>=6.0
+

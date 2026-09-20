@@ -1,0 +1,7 @@
+stage,time,latency_ms,memory_gb,api_calls,status
+GeoSemID offline,[TBD],0,[TBD],[TBD],MOCK -- NOT EMPIRICAL CLAIMS
+Teacher reverse data,[TBD],0,[TBD],[TBD],MOCK -- NOT EMPIRICAL CLAIMS
+Expert retrieval,[TBD],18,[TBD],[TBD],MOCK -- NOT EMPIRICAL CLAIMS
+Router,[TBD],1,[TBD],[TBD],MOCK -- NOT EMPIRICAL CLAIMS
+Fusion,[TBD],1,[TBD],[TBD],MOCK -- NOT EMPIRICAL CLAIMS
+Local ranking,[TBD],72,[TBD],[TBD],MOCK -- NOT EMPIRICAL CLAIMS

@@ -1,0 +1,4 @@
+dataset,spatial,transition,temporal,semantic,status
+NYC,0.31,0.28,0.19,0.22,MOCK -- NOT EMPIRICAL CLAIMS
+TKY,0.29,0.3,0.18,0.23,MOCK -- NOT EMPIRICAL CLAIMS
+CA,0.35,0.24,0.17,0.24,MOCK -- NOT EMPIRICAL CLAIMS

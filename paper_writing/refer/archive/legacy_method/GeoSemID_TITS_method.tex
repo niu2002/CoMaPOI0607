@@ -1,0 +1,782 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage{amsmath,amssymb,bm}
+\usepackage{cite}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{url}
+\usepackage{enumitem}
+
+\interdisplaylinepenalty=2500
+
+\newcommand{\gsid}{\mathrm{GeoSemID}}
+\newcommand{\Experts}{\mathcal{M}}
+\newcommand{\POIs}{\mathcal{P}}
+\newcommand{\Users}{\mathcal{U}}
+\newcommand{\Train}{\mathcal{D}_{\mathrm{tr}}}
+\newcommand{\HitTrain}{\mathcal{D}_{\mathrm{hit}}}
+\newcommand{\Ind}{\mathbb{I}}
+
+\title{Constrained Geo-Semantic Identifiers and Utility-Supervised Dynamic Multi-Expert Retrieval for Next-POI Prediction}
+
+\author{Anonymous~Authors%
+\thanks{Working draft prepared for IEEE Transactions on Intelligent Transportation Systems.}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Next point-of-interest (POI) prediction requires identifying a user's next
+destination from a large and heterogeneous location catalog. Existing methods
+often represent POIs as isolated identifiers and rely on a single retrieval
+signal, which limits candidate coverage for sparse trajectories and long-tail
+locations. We propose a GeoSemID framework that combines constrained
+geo-semantic identifiers with utility-supervised dynamic multi-expert
+retrieval. GeoSemID augments each POI with deterministic coarse- and
+fine-grained geographic codes, a normalized category code, and a validated
+semantic code generated offline from POI metadata. Spatial, transition,
+temporal, and semantic experts generate complementary candidates; count-based
+experts use reliability-aware hierarchical backoff, while spatial and semantic
+experts use explicitly calibrated evidence fusion. A trajectory-conditioned
+router is supervised only by training examples whose target is retrieved by at
+least one expert, and it fuses rank-percentile evidence that is retained by a
+candidate-constrained language-model ranker. The ranker explicitly scores only
+valid candidate IDs, thereby separating candidate coverage from conditional
+ranking and avoiding target leakage. Preliminary evaluations on the CA and NYK
+datasets support the effectiveness of the GeoSemID representation and dynamic
+retrieval mechanism; complete benchmark and ablation results will be reported
+after all experiments are finalized.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Next point-of-interest prediction, trajectory modeling, semantic identifiers,
+multi-expert retrieval, dynamic routing, large language models.
+\end{IEEEkeywords}
+
+\section{Problem Formulation}
+\label{sec:problem}
+
+\subsection{Next-POI Prediction}
+
+Let $\Users=\{u_1,\ldots,u_{|\Users|}\}$ and
+$\POIs=\{p_1,\ldots,p_{|\POIs|}\}$ denote the user and POI sets.
+Each POI $p$ is associated with metadata
+\begin{equation}
+\bm{m}_{p}
+=
+\langle n_p,c_p,\bm{g}_p,\bm{a}_p\rangle,
+\label{eq:poi_metadata}
+\end{equation}
+where $n_p$ is the POI name, $c_p$ is its functional category,
+$\bm{g}_p$ contains coordinates and available administrative information,
+and $\bm{a}_p$ denotes other attributes.
+
+A check-in of user $u$ at sequence position $i$ is
+\begin{equation}
+x_{u,i}=\langle p_{u,i},t_{u,i}\rangle.
+\label{eq:checkin}
+\end{equation}
+For a sample whose target is $p_u^{*}=p_{u,n_u}$, the observable trajectory is
+$\{x_{u,1},\ldots,x_{u,n_u-1}\}$.
+Given a recent-window length $L$, it is divided into
+\begin{align}
+\mathcal{T}_{u}^{H}
+&=
+\{x_{u,1},\ldots,x_{u,n_u-L-1}\},
+\label{eq:historical_trajectory}\\
+\mathcal{T}_{u}^{C}
+&=
+\{x_{u,n_u-L},\ldots,x_{u,n_u-1}\},
+\label{eq:current_trajectory}
+\end{align}
+where $\mathcal{T}_{u}^{H}$ characterizes long-term mobility preference and
+$\mathcal{T}_{u}^{C}$ describes the immediate movement context.
+
+Because the complete POI catalog contains many irrelevant alternatives, we
+formulate next-POI prediction as two coupled tasks.
+First, a retrieval model constructs a compact candidate set
+$\mathcal{C}_u\subset\POIs$ and should maximize
+\begin{equation}
+\Pr(p_u^{*}\in\mathcal{C}_u
+\mid
+\mathcal{T}_{u}^{H},\mathcal{T}_{u}^{C},\{\bm{m}_p\}_{p\in\POIs}).
+\label{eq:coverage_objective}
+\end{equation}
+Second, a ranker predicts
+\begin{equation}
+\widehat{p}_{u}
+=
+\arg\max_{p\in\mathcal{C}_u}
+P_{\psi}
+\left(
+p\mid
+\mathcal{T}_{u}^{H},
+\mathcal{T}_{u}^{C},
+\mathcal{C}_u,
+\gsid(p),
+\bm{\xi}_{u,p}
+\right),
+\label{eq:final_prediction}
+\end{equation}
+where $\gsid(p)$ is the structured identifier of candidate $p$ and
+$\bm{\xi}_{u,p}$ records expert retrieval evidence.
+If $p_u^{*}\notin\mathcal{C}_u$, the end-to-end prediction is necessarily
+incorrect; therefore candidate coverage and conditional ranking quality must
+be evaluated separately.
+
+\subsection{Constrained Geo-Semantic Identification}
+
+An atomic POI ID preserves exact identity but does not expose reusable
+geographic, functional, or semantic relations.
+For each POI, we define
+\begin{equation}
+\gsid(p)
+=
+[
+z_{p}^{\mathrm{cg}},
+z_{p}^{\mathrm{fg}},
+z_{p}^{\mathrm{cat}},
+z_{p}^{\mathrm{sem}}
+],
+\label{eq:geosemid_definition}
+\end{equation}
+where $z_{p}^{\mathrm{cg}}$ and $z_{p}^{\mathrm{fg}}$ denote coarse- and
+fine-grained geographic cells, $z_{p}^{\mathrm{cat}}$ is a normalized
+functional code, and $z_{p}^{\mathrm{sem}}$ is a constrained semantic code.
+
+The first three components are deterministic functions of metadata:
+\begin{align}
+z_{p}^{\mathrm{cg}}&=\rho_{\mathrm{cg}}(\bm{g}_p),&
+z_{p}^{\mathrm{fg}}&=\rho_{\mathrm{fg}}(\bm{g}_p),&
+z_{p}^{\mathrm{cat}}&=\rho_{\mathrm{cat}}(c_p).
+\label{eq:deterministic_codes}
+\end{align}
+The semantic component is produced offline by a fine-tuned LLM generator:
+\begin{equation}
+z_{p}^{\mathrm{sem}}
+=
+\operatorname{Validate}
+\left[
+G_{\phi}\!\left(\mathcal{I}(\bm{m}_p)\right)
+\right],
+\label{eq:semantic_generation}
+\end{equation}
+where $\mathcal{I}(\cdot)$ serializes POI metadata under a fixed prompt,
+$G_{\phi}$ is the generator, and $\operatorname{Validate}(\cdot)$ enforces
+the predefined grammar and vocabulary.
+The generator is not described as an autonomous agent: it performs a single
+constrained metadata-to-code mapping.
+
+The semantic-code target has the fixed form
+\begin{equation}
+y_p^{\mathrm{sem}}
+=
+\langle
+y_p^{\mathrm{intent}},
+y_p^{\mathrm{attribute}},
+y_p^{\mathrm{context}}
+\rangle
+\in
+\mathcal{V}_{i}\times\mathcal{V}_{a}\times\mathcal{V}_{c}.
+\label{eq:semantic_schema}
+\end{equation}
+The category field is deliberately excluded from this code: it is represented
+only by $z_p^{\mathrm{cat}}$. The semantic fields instead encode visit intent,
+distinctive service attributes, and contextual usage beyond the source
+taxonomy. The label-construction protocol, vocabulary sizes, and quality-control
+statistics are reported with the experimental settings.
+
+\subsection{Context-Adaptive Multi-Expert Retrieval}
+
+Let
+\begin{equation}
+\Experts=\{\mathrm{sp},\mathrm{tr},\mathrm{tp},\mathrm{se}\}
+\label{eq:expert_set}
+\end{equation}
+denote spatial, transition, temporal, and semantic experts.
+Each expert scores the complete catalog during offline training and returns
+its top-$K_0$ list during inference:
+\begin{equation}
+\mathcal{C}_{u}^{(m)}
+=
+\operatorname{TopK}_{K_0}
+\{r_{u}^{(m)}(p):p\in\POIs\}.
+\label{eq:expert_candidate}
+\end{equation}
+A sample-level router estimates $\bm{\pi}_u=\{\pi_u^{(m)}\}_{m\in\Experts}$
+from observable trajectory context only.
+The router fuses rank-normalized expert evidence into the final
+$\mathcal{C}_u$.
+Training-target ranks are used only to construct router supervision on the
+training split and are never inputs to the router at validation or test time.
+
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Framework Overview}
+
+The framework contains three coupled stages.
+First, GeoSemID converts heterogeneous POI metadata into a reusable hierarchy
+while preserving the original POI ID for exact identity.
+Second, transition and temporal retrievers use count-reliability-aware
+hierarchical backoff, whereas spatial and semantic retrievers use calibrated
+hierarchical evidence; a target-rank-supervised router dynamically selects
+their relative importance for each sample.
+Third, a candidate-constrained LLM scores only valid candidate identifiers and
+retains expert evidence in its input.
+
+The novelty boundary is therefore not ``using Qwen'' or merely combining four
+retrievers.
+The intended technical contributions are:
+(i) a constrained, reusable geo-semantic code that enables structured backoff
+for sparse POIs;
+(ii) sample-level utility supervision for the dynamic router rather than
+fixed fusion; and
+(iii) evidence preservation from retrieval to candidate ranking.
+
+\subsection{Offline GeoSemID Construction}
+\label{subsec:geosemid}
+
+\subsubsection{Semantic-Code Supervision and Data Isolation}
+
+The semantic generator is trained on
+\begin{equation}
+\mathcal{D}_{\mathrm{sem}}
+=
+\{
+(\mathcal{I}(\bm{m}_p),y_p^{\mathrm{sem}})
+\},
+\label{eq:semantic_dataset}
+\end{equation}
+using token-level negative log-likelihood
+\begin{equation}
+\mathcal{L}_{\mathrm{sem}}
+=
+-
+\sum_{(\bm{x},\bm{y})\in\mathcal{D}_{\mathrm{sem}}}
+\sum_{\ell=1}^{|\bm{y}|}
+\log P_{\phi}(y_{\ell}\mid\bm{x},y_{<\ell}).
+\label{eq:semantic_loss}
+\end{equation}
+The target serialization is fixed, for example,
+\begin{equation}
+\texttt{<INTENT=i;ATTRIBUTE=a;CONTEXT=c>},
+\label{eq:serialization_example}
+\end{equation}
+and decoding accepts only tokens in the corresponding field vocabularies.
+An output is valid if and only if it contains exactly one value for every
+field and every value belongs to the predefined vocabulary.
+Invalid outputs are regenerated once under greedy decoding; a second invalid
+output is mapped to an explicit \texttt{UNK} code and counted in the reported
+invalid-output rate.
+
+To prevent trajectory-label leakage, $G_{\phi}$ receives POI metadata only.
+It does not receive user IDs, check-in sequences, target transitions, or
+validation/test labels.
+In the standard transductive setting, metadata of the catalog may be encoded
+offline, but all interaction statistics used by the retrieval experts are
+estimated exclusively from the training split.
+Any cold-POI claim requires a separate inductive protocol in which the
+semantic generator is not tuned on the held-out POIs.
+
+\subsubsection{Retrieval Representation}
+
+The implementation serializes the structured identifier together with POI
+metadata and encodes the resulting text with the retrieval encoder:
+\begin{equation}
+\bm{e}_{p}^{\mathrm{gs}}
+=
+\operatorname{Enc}_{\mathrm{ret}}
+\left(
+\operatorname{Serialize}
+\left[
+\gsid(p),\bm{m}_p
+\right]
+\right).
+\label{eq:geosemid_embedding}
+\end{equation}
+The serialization retains the canonical POI ID for exact identity and exposes
+all GeoSemID fields to the same encoder used for trajectory retrieval. This
+matches both local and API embedding backends and does not assume separately
+trained identifier embedding tables or an additional projection layer.
+
+\subsection{Reliability-Aware Hierarchical Backoff for Count Statistics}
+\label{subsec:backoff}
+
+Transition and temporal probabilities are estimated from finite interaction
+counts. For either count-based expert $m\in\{\mathrm{tr},\mathrm{tp}\}$, let
+$P_{u,\mathrm{ex}}^{(m)}(p)$ be the exact POI-level probability and
+$P_{u,l}^{(m)}(p)$ be the POI-level probability induced by identifier level
+$l$. The support of the exact statistic is $N_u^{(m)}$, and its reliability is
+\begin{equation}
+\lambda_{u}^{(m)}
+=
+\frac{N_{u}^{(m)}}{N_{u}^{(m)}+\alpha_m},
+\label{eq:reliability}
+\end{equation}
+where $\alpha_m>0$ is fixed on the validation split.
+The probabilities are interpolated before taking the logarithm:
+\begin{align}
+P_u^{(m)}(p)
+={}&
+\lambda_u^{(m)}P_{u,\mathrm{ex}}^{(m)}(p)
+\nonumber\\
+&+
+(1-\lambda_u^{(m)})
+\sum_{l\in\mathcal{L}_m}
+\omega_l^{(m)}P_{u,l}^{(m)}(p),
+\label{eq:unified_backoff_probability}\\
+r_u^{(m)}(p)
+={}&
+\log\!\left(P_u^{(m)}(p)+\epsilon\right),
+\label{eq:unified_backoff}
+\end{align}
+Here $\epsilon>0$ is a numerical safeguard,
+$\omega_l^{(m)}\ge0$, and $\sum_l\omega_l^{(m)}=1$.
+For an identifier value $z$, define its POI-bucket size as
+\begin{equation}
+\nu_l(z)
+=
+\left|\{p'\in\POIs:z_{p'}^{(l)}=z\}\right|.
+\label{eq:identifier_bucket_size}
+\end{equation}
+Dividing an identifier-level probability by $\nu_l(z)$ below turns it into a
+distribution over individual POIs rather than assigning the full code
+probability to every POI in the bucket.
+The smoothing constants, $\alpha_m$, and $\omega_l^{(m)}$ are selected on the
+validation split using candidate Recall@$K_0$ and then fixed for test-time
+inference. Spatial distance and semantic similarity are not count estimates;
+their calibrated fusion is defined separately below.
+
+For count probabilities, additive smoothing is uniquely defined as
+\begin{equation}
+P_{\delta}(b\mid a)
+=
+\frac{N(a,b)+\delta}{N(a)+\delta|\mathcal{Y}|},
+\label{eq:additive_smoothing}
+\end{equation}
+where $\mathcal{Y}$ is the corresponding outcome vocabulary.
+No probability term is silently omitted.
+
+\subsection{Specialized Retrieval Experts}
+\label{subsec:experts}
+
+\subsubsection{Spatial Expert}
+
+Let $\bm{g}_{u}^{\mathrm{last}}$ be the latest coordinate and
+$\bm{g}_{u}^{\mathrm{ctr}}$ be the median center of the current trajectory.
+The distance-based component is mapped to $[0,1]$ as
+\begin{equation}
+\begin{aligned}
+s_{u,\mathrm{dist}}^{(\mathrm{sp})}(p)
+={}&\frac{1}{2}\exp\!\left(-\widetilde d_{\mathrm{hav}}
+(\bm{g}_{u}^{\mathrm{last}},\bm{g}_{p})\right)\\
+&+\frac{1}{2}\exp\!\left(-\widetilde d_{\mathrm{hav}}
+(\bm{g}_{u}^{\mathrm{ctr}},\bm{g}_{p})\right),
+\end{aligned}
+\label{eq:spatial_exact}
+\end{equation}
+where $\widetilde d_{\mathrm{hav}}$ is Haversine distance divided by the
+training-set median distance.
+The hierarchical terms are
+\begin{align}
+b_{u,\mathrm{cg}}^{(\mathrm{sp})}(p)
+&=
+\Ind[z_p^{\mathrm{cg}}\in\mathcal{R}_{u}^{\mathrm{cg}}],
+&
+b_{u,\mathrm{fg}}^{(\mathrm{sp})}(p)
+&=
+\Ind[z_p^{\mathrm{fg}}\in\mathcal{R}_{u}^{\mathrm{fg}}],
+\label{eq:spatial_backoff}
+\end{align}
+where the active-region sets are estimated from the observable trajectory.
+The spatial score uses the same $[0,1]$ scale for distance and region evidence:
+\begin{equation}
+r_u^{(\mathrm{sp})}(p)
+=
+\zeta_{\mathrm{sp}}s_{u,\mathrm{dist}}^{(\mathrm{sp})}(p)
++
+(1-\zeta_{\mathrm{sp}})
+\sum_{l\in\{\mathrm{cg},\mathrm{fg}\}}
+\omega_l^{(\mathrm{sp})}b_{u,l}^{(\mathrm{sp})}(p),
+\label{eq:spatial_fusion}
+\end{equation}
+where $\zeta_{\mathrm{sp}}\in[0,1]$ and $\omega_l^{(\mathrm{sp})}$ are selected
+on the validation split by candidate Recall@$K_0$.
+
+\subsubsection{Transition Expert}
+
+Let $p_u^{\mathrm{last}}$ be the latest POI.
+The exact transition probability is
+\begin{equation}
+P_{u,\mathrm{ex}}^{(\mathrm{tr})}(p)
+=
+P_{\delta_{\mathrm{tr}}}(p\mid p_u^{\mathrm{last}}).
+\label{eq:transition_exact}
+\end{equation}
+For $l\in\{\mathrm{fg},\mathrm{cat},\mathrm{sem}\}$,
+\begin{equation}
+P_{u,l}^{(\mathrm{tr})}(p)
+=
+\frac{
+P_{\delta_{\mathrm{tr}},l}
+(z_p^{(l)}\mid z_{p_u^{\mathrm{last}}}^{(l)})
+}{
+\nu_l(z_p^{(l)})
+}.
+\label{eq:transition_backoff}
+\end{equation}
+The support $N_u^{(\mathrm{tr})}$ in \eqref{eq:reliability} is the number of
+observed outgoing transitions from $p_u^{\mathrm{last}}$ in the training
+split; it is shared by all candidate POIs for the same prediction instance.
+
+\subsubsection{Temporal Expert}
+
+Let $\tau_u$ be the joint time-of-day, day-of-week, and weekday/weekend bin.
+The exact probability is
+\begin{equation}
+P_{u,\mathrm{ex}}^{(\mathrm{tp})}(p)
+=
+P_{\delta_{\mathrm{tp}}}(p\mid u,\tau_u).
+\label{eq:temporal_exact}
+\end{equation}
+The backoff levels are
+\begin{equation}
+P_{u,l}^{(\mathrm{tp})}(p)
+=
+\frac{P_{\delta_{\mathrm{tp}},l}(z_p^{(l)}\mid\tau_u)}
+{\nu_l(z_p^{(l)})},
+\quad
+l\in\{\mathrm{cat},\mathrm{sem}\}.
+\label{eq:temporal_backoff}
+\end{equation}
+Its exact support is the number of user-$u$ check-ins observed in bin
+$\tau_u$; low support automatically shifts mass to category and semantic
+statistics through \eqref{eq:reliability}.
+
+\subsubsection{Semantic Expert}
+
+The retrieval encoder produces an intent query from the serialized observable
+trajectory:
+\begin{equation}
+\bm{q}_{u}^{\mathrm{sem}}
+=
+\operatorname{Enc}_{\mathrm{ret}}
+\left(
+\operatorname{Serialize}
+\left[\mathcal{T}_{u}^{H},\mathcal{T}_{u}^{C}\right]
+\right).
+\label{eq:semantic_query}
+\end{equation}
+The semantic-similarity component is normalized to $[0,1]$:
+\begin{equation}
+s_{u,\mathrm{sim}}^{(\mathrm{se})}(p)
+=
+\frac{1+\operatorname{cos}\!\left(
+\bm{q}_{u}^{\mathrm{sem}},\bm{e}_{p}^{\mathrm{gs}}
+\right)}{2},
+\label{eq:semantic_exact}
+\end{equation}
+Its identifier-level evidence is
+\begin{equation}
+\begin{aligned}
+b_{u,l}^{(\mathrm{se})}(p)
+&=
+\frac{1}{|\mathcal{T}_{u}^{C}|}
+\sum_{x_{u,i}\in\mathcal{T}_{u}^{C}}
+\Ind[z_{p_{u,i}}^{(l)}=z_p^{(l)}],\\
+&\hspace{1.2em}
+ l\in\{\mathrm{cg},\mathrm{fg},\mathrm{cat},\mathrm{sem}\}.
+\end{aligned}
+\label{eq:semantic_backoff}
+\end{equation}
+The semantic score combines two quantities on the same $[0,1]$ scale:
+\begin{equation}
+r_u^{(\mathrm{se})}(p)
+=
+\zeta_{\mathrm{se}}s_{u,\mathrm{sim}}^{(\mathrm{se})}(p)
++
+(1-\zeta_{\mathrm{se}})
+\sum_{l\in\{\mathrm{cg},\mathrm{fg},\mathrm{cat},\mathrm{sem}\}}
+\omega_l^{(\mathrm{se})}b_{u,l}^{(\mathrm{se})}(p),
+\label{eq:semantic_fusion}
+\end{equation}
+where $\zeta_{\mathrm{se}}\in[0,1]$ and $\omega_l^{(\mathrm{se})}$ are selected
+on the validation split by candidate Recall@$K_0$. This formulation makes the
+contribution of every GeoSemID component observable and directly ablatable.
+
+\subsection{Utility-Supervised Sample-Level Router}
+\label{subsec:router}
+
+\subsubsection{Observable Routing Context}
+
+The router receives no target information.
+Its input is
+\begin{equation}
+\bm{q}_{u}
+=
+[
+\bm{h}_{u}^{H}
+\Vert
+\bm{h}_{u}^{C}
+\Vert
+\bm{e}_{\tau_u}
+\Vert
+\bm{s}_{u}^{\mathrm{mob}}
+\Vert
+\bm{s}_{u}^{\mathrm{gs}}
+],
+\label{eq:routing_context}
+\end{equation}
+where $\bm{s}_{u}^{\mathrm{mob}}$ includes displacement, radius of gyration,
+and trajectory concentration, and $\bm{s}_{u}^{\mathrm{gs}}$ summarizes
+GeoSemID frequencies and transitions in the observable trajectory.
+The router predicts
+\begin{equation}
+\bm{\pi}_{u}
+=
+\operatorname{softmax}(f_{\theta}(\bm{q}_{u})/T_r).
+\label{eq:router_output}
+\end{equation}
+
+\subsubsection{Training-Only Rank-Derived Utility}
+
+During router training only, let $\operatorname{rank}_{u}^{(m)}(p_u^{*})$ be
+the target rank in expert $m$'s top-$K_0$ list when the target is retrieved.
+The utility is
+\begin{equation}
+a_{u}^{(m)}
+=
+\begin{cases}
+1-\dfrac{\operatorname{rank}_{u}^{(m)}(p_u^{*})-1}{K_0},
+&p_u^{*}\in\mathcal{C}_{u}^{(m)},\\[7pt]
+0,&p_u^{*}\notin\mathcal{C}_{u}^{(m)},
+\end{cases}
+\label{eq:expert_utility}
+\end{equation}
+and the soft target is
+\begin{equation}
+q_{u}^{(m)}
+=
+\frac{
+\Ind[a_u^{(m)}>0]\exp(a_{u}^{(m)}/\tau_q)
+}{
+\sum_{j\in\Experts}
+\Ind[a_u^{(j)}>0]\exp(a_{u}^{(j)}/\tau_q)
+}.
+\label{eq:utility_target}
+\end{equation}
+We train the router only on examples that are retrieved by at least one expert:
+\begin{equation}
+\mathcal{D}_{\mathrm{router}}
+=
+\{u\in\Train:\max_{m\in\Experts}a_u^{(m)}>0\}.
+\label{eq:router_training_set}
+\end{equation}
+This aligns supervision with the top-$K_0$ candidate-generation task: an expert
+is rewarded only when it can actually contribute the target to the union pool.
+The router loss is
+\begin{equation}
+\mathcal{L}_{\mathrm{router}}
+=
+-
+\sum_{u\in\mathcal{D}_{\mathrm{router}}}
+\sum_{m\in\Experts}
+q_{u}^{(m)}\log\pi_{u}^{(m)}.
+\label{eq:router_loss}
+\end{equation}
+All utilities are generated from training targets only.
+Validation and test targets are never used to compute router weights or
+routing features.
+
+\subsection{Comparable Dynamic Fusion and Evidence Preservation}
+\label{subsec:fusion}
+
+Raw expert scores have incompatible scales, so they are not added directly.
+Within each top-$K_0$ expert list, we convert rank to a percentile score:
+\begin{equation}
+\overline r_{u}^{(m)}(p)
+=
+\begin{cases}
+1-\dfrac{\operatorname{rank}_{u}^{(m)}(p)-1}{K_0},
+&
+p\in\mathcal{C}_{u}^{(m)},\\[7pt]
+0,
+&
+p\notin\mathcal{C}_{u}^{(m)}.
+\end{cases}
+\label{eq:rank_percentile}
+\end{equation}
+The union pool and dynamically fused score are
+\begin{align}
+\widetilde{\mathcal{C}}_u
+&=
+\bigcup_{m\in\Experts}\mathcal{C}_{u}^{(m)},
+\label{eq:union_pool}\\
+s_u(p)
+&=
+\sum_{m\in\Experts}
+\pi_u^{(m)}\overline r_u^{(m)}(p).
+\label{eq:dynamic_fusion}
+\end{align}
+The final candidate set is
+\begin{equation}
+\mathcal{C}_u
+=
+\operatorname{TopK}_{K}
+\{s_u(p):p\in\widetilde{\mathcal{C}}_u\}.
+\label{eq:final_candidate}
+\end{equation}
+Ties are broken first by the number of experts retrieving the candidate and
+then by canonical POI ID.
+
+For every retained candidate, the evidence vector is
+\begin{equation}
+\bm{\xi}_{u,p}
+=
+\mathop{\Vert}_{m\in\Experts}
+[
+\pi_u^{(m)},
+\overline r_u^{(m)}(p),
+\Ind[p\in\mathcal{C}_u^{(m)}]
+].
+\label{eq:evidence_vector}
+\end{equation}
+This vector is passed to the ranker; retrieval evidence is not discarded after
+fusion.
+Fixed reciprocal-rank fusion is not part of the proposed method and is used
+only as a non-learned comparison in experiments.
+
+\subsection{Reproducible Candidate-Constrained LLM Ranking}
+\label{subsec:ranker}
+
+\subsubsection{Structured Prompt}
+
+Each training and inference prompt uses the following fixed fields:
+\begin{enumerate}[leftmargin=*,nosep]
+\item \texttt{HISTORY\_PROFILE}: a serialized summary derived only from
+$\mathcal{T}_{u}^{H}$;
+\item \texttt{CURRENT\_TRAJECTORY}: the last $L$ check-ins with timestamps;
+\item \texttt{PREDICTION\_TIME}: the target time context available at inference;
+\item \texttt{CANDIDATES}: one record per candidate containing canonical POI
+ID, GeoSemID fields, metadata, router weight, expert memberships, and
+rank-percentile scores;
+\item \texttt{OUTPUT}: exactly one canonical candidate POI ID.
+\end{enumerate}
+Candidate records are randomly permuted at every training epoch to reduce
+position memorization.
+At inference, candidates are ordered by canonical POI ID, not by fused score.
+Inputs longer than the fixed maximum length $L_{\max}$ retain all candidate
+IDs and evidence while truncating the oldest historical records first.
+
+\subsubsection{Explicit Candidate Likelihood}
+
+Let $\operatorname{tok}(p)$ be the tokenizer sequence of the canonical POI ID.
+The model does not freely generate an arbitrary catalog ID.
+Instead, all candidate strings are scored by batched teacher forcing:
+\begin{equation}
+\psi_u(p)
+=
+\frac{1}{|\operatorname{tok}(p)|}
+\sum_{\ell=1}^{|\operatorname{tok}(p)|}
+\log
+P_{\psi}
+\left(
+\operatorname{tok}_{\ell}(p)
+\mid
+\bm{x}_u,
+\operatorname{tok}_{<\ell}(p)
+\right).
+\label{eq:candidate_likelihood}
+\end{equation}
+The candidate probability is
+\begin{equation}
+P_{\psi}(p\mid\bm{x}_u,\mathcal{C}_u)
+=
+\frac{\exp(\psi_u(p)/T_p)}
+{\sum_{p'\in\mathcal{C}_u}\exp(\psi_u(p')/T_p)}.
+\label{eq:candidate_probability}
+\end{equation}
+This protocol has decoder cost
+$O(K\overline{\ell}_{\mathrm{id}})$ token evaluations per sample and can be
+batched across candidates.
+It also makes candidate order, ID tokenization, and output constraints
+explicitly reproducible.
+
+\subsection{Training and Inference Consistency}
+\label{subsec:training}
+
+Training proceeds in three stages.
+
+\textit{Stage 1: semantic-code generator tuning.}
+The Qwen-8B generator is optimized with
+$\mathcal{L}_{\mathrm{sem}}$, validated under the fixed grammar, and used once
+to cache $z_p^{\mathrm{sem}}$ for every eligible POI.
+
+\textit{Stage 2: expert construction and router training.}
+All transition and temporal counts, spatial statistics, and semantic indexes
+are built from the training interaction split.
+Top-$K_0$ training retrieval lists provide utility targets for
+$\mathcal{L}_{\mathrm{router}}$.
+
+\textit{Stage 3: candidate-constrained ranker tuning.}
+The trained retrievers and router generate the natural candidate set
+$\mathcal{C}_u$.
+No true target is inserted.
+The ranker training subset is
+\begin{equation}
+\HitTrain
+=
+\{u\in\Train:p_u^{*}\in\mathcal{C}_u\},
+\label{eq:hit_training_set}
+\end{equation}
+and the ranking loss is
+\begin{equation}
+\mathcal{L}_{\mathrm{rank}}
+=
+-
+\sum_{u\in\HitTrain}
+\log
+P_{\psi}(p_u^{*}\mid\bm{x}_u,\mathcal{C}_u).
+\label{eq:rank_loss}
+\end{equation}
+Missed samples are not made artificially easier by target injection; instead,
+they remain retrieval errors and are addressed through the expert and router
+stages.
+
+At inference, all three online steps use only observable information:
+expert retrieval, dynamic fusion, and candidate likelihood scoring.
+The semantic generator is not invoked online.
+
+\subsection{Evaluation Contract}
+\label{subsec:evaluation_contract}
+
+To prevent candidate recall and ranking quality from being conflated, the
+experiments must report:
+\begin{enumerate}[leftmargin=*,nosep]
+\item candidate Recall@$K$ on the unmodified candidate set;
+\item ranker-training coverage
+$|\mathcal{D}_{\mathrm{hit}}|/|\mathcal{D}_{\mathrm{tr}}|$ and the corresponding
+number of ranker-training samples;
+\item conditional ranking HR/NDCG/MRR on samples where
+$p_u^{*}\in\mathcal{C}_u$;
+\item end-to-end HR/NDCG/MRR, counting every retrieval miss as incorrect;
+\item an explicitly labeled oracle-candidate upper bound, used only for
+diagnosis and never as the main result;
+\item long-tail POI, short-trajectory, and sparse-user slices;
+\item offline GeoSemID generation cost, online expert retrieval latency,
+router latency, and candidate-ranking latency.
+\end{enumerate}
+
+The minimum mechanism ablations are:
+GeoSemID removed; geographic/category codes only; semantic code only;
+semantic embedding without discrete codes; uniform fusion; globally fixed
+weights; fixed RRF; removal of each expert; removal of router utility
+supervision; and removal of expert evidence from the ranker.
+
+\bibliographystyle{IEEEtran}
+% \bibliography{references}
+
+\end{document}

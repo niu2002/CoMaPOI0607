@@ -45,3 +45,15 @@ scratch/
 dataset_all/ca/ca_historical_summary.jsonl
 dataset_all/nyc/nyc_historical_summary.jsonl
 dataset_all/tky/tky_historical_summary.jsonl
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.zip
+
