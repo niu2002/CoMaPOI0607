@@ -1420,8 +1420,17 @@ class ForwardInferenceProcessor:
                 with open(interim_output_json, 'w', encoding='utf-8') as f:
                     json.dump(list(all_predictions.values()), f, ensure_ascii=False, indent=4)
 
-                metrics = evaluate_poi_predictions(args, interim_output_json, top_k, metrics_txt, metrics_csv, key='predicted_poi_ids')
-                interim_diagnostics_json = f'{results_path}/interim_diagnostics_{len(all_predictions)}.json'
+                curr_count = len(all_predictions)
+                interim_metrics_txt = f'{results_path}/interim_metrics_{curr_count}.txt'
+                interim_metrics_csv = f'{results_path}/interim_metrics_{curr_count}.csv'
+                metrics = evaluate_poi_predictions(args, interim_output_json, top_k, interim_metrics_txt, interim_metrics_csv, key='predicted_poi_ids')
+                try:
+                    import shutil
+                    shutil.copyfile(interim_metrics_txt, metrics_txt)
+                    shutil.copyfile(interim_metrics_csv, metrics_csv)
+                except Exception as e:
+                    print(f"[WARN] Failed to mirror interim metrics to {metrics_txt}: {e}")
+                interim_diagnostics_json = f'{results_path}/interim_diagnostics_{curr_count}.json'
                 write_prediction_diagnostics(
                     args,
                     list(all_predictions.values()),
