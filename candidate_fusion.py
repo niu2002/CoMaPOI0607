@@ -217,9 +217,14 @@ def parse_rrf_weights(raw_weights: str | None) -> dict[str, float]:
 
     weights = dict(default)
     for item in raw_weights.split(","):
-        if not item.strip() or "=" not in item:
+        if not item.strip():
             continue
-        key, value = item.split("=", 1)
+        if "=" in item:
+            key, value = item.split("=", 1)
+        elif ":" in item:
+            key, value = item.split(":", 1)
+        else:
+            continue
         key = key.strip()
         try:
             weights[key] = float(value.strip())

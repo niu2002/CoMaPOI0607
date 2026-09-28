@@ -18,7 +18,8 @@ def parse_args():
     parser.add_argument("--mode", type=str, default="test", choices=["train", "test"], help="Dataset split")
     parser.add_argument("--num_samples", type=int, default=10, help="Number of samples to build candidates for")
     parser.add_argument("--top_k", type=int, default=100, help="Number of candidate POIs to keep per sample")
-    parser.add_argument("--embedding_model_path", type=str, default="models/Qwen3-Embedding-4B", help="Local embedding model path")
+    default_embed = "/mnt/workspace/models/Qwen3-Embedding-4B" if Path("/mnt/workspace/models/Qwen3-Embedding-4B").exists() else "models/Qwen3-Embedding-4B"
+    parser.add_argument("--embedding_model_path", type=str, default=default_embed, help="Local embedding model path")
     parser.add_argument("--embedding_batch_size", type=int, default=8, help="Embedding batch size")
     parser.add_argument("--embedding_max_length", type=int, default=2048, help="Embedding max length")
     parser.add_argument(

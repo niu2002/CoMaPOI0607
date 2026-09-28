@@ -463,7 +463,7 @@ class RAG_Finder:
             for line in f:
                 samples.append(json.loads(line))
 
-        num_samples = min(self.num_test, len(samples))
+        num_samples = len(samples) if self.num_test <= 0 else min(self.num_test, len(samples))
         samples = samples[:num_samples]
 
         print(f"Generating candidates for {num_samples} samples from {self.sample_file} ...")

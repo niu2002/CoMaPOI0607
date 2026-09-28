@@ -89,4 +89,131 @@ def evaluate_poi_predictions(args, file_path, top_k, output_file, csv_file, key)
     print(f"MRR: {metrics['MRR']:.2f}")
     print(f"NDCG@{requested_k}: {metrics[f'NDCG@{requested_k}']:.2f}")
 
+    # Automatically maintain cumulative multi-stage metrics across all intervals (200, 400, 600, 800, 900...)
+    try:
+        import os
+        results_dir = os.path.dirname(output_file)
+        update_cumulative_metrics(results_dir, top_k=top_k, key=key)
+    except Exception as e:
+        print(f"[WARN] Failed to update cumulative multi-stage metrics: {e}")
+
     return metrics
+
+
+def update_cumulative_metrics(results_path, top_k=10, key='predicted_poi_ids'):
+    """
+    Scans all interim and final prediction files in results_path and creates/updates
+    metrics.csv and metrics.txt containing columns for each interval (e.g. 200, 400, 600, 800, 900).
+    """
+    import os
+    import glob
+    import re
+    if not results_path or not os.path.exists(results_path):
+        return
+
+    pattern = os.path.join(results_path, "interim_poi_predictions_*.json")
+    interim_files = glob.glob(pattern)
+    
+    stage_data = {}
+    for fpath in interim_files:
+        basename = os.path.basename(fpath)
+        m = re.search(r"interim_poi_predictions_(\d+)\.json", basename)
+        if m:
+            count = int(m.group(1))
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list) and data:
+                    stage_data[count] = data
+            except Exception:
+                pass
+
+    final_path = os.path.join(results_path, "poi_predictions.json")
+    if os.path.exists(final_path):
+        try:
+            with open(final_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list) and data:
+                count = len(data)
+                stage_data[count] = data
+        except Exception:
+            pass
+
+    if not stage_data:
+        return
+
+    metric_ks = _metric_ks(top_k)
+    sorted_counts = sorted(stage_data.keys())
+    eval_results = {}
+
+    for count in sorted_counts:
+        data = stage_data[count]
+        total_samples = len(data)
+        hit_counts = {k: 0 for k in metric_ks}
+        ndcg_sums = {k: 0.0 for k in metric_ks}
+        reciprocal_rank_sum = 0.0
+
+        for sample in data:
+            true_poi_id = str(sample.get("label"))
+            predicted_poi_ids = _prediction_list(sample, key)
+
+            rank = None
+            try:
+                rank = predicted_poi_ids.index(true_poi_id) + 1
+                reciprocal_rank_sum += 1.0 / rank
+            except ValueError:
+                pass
+
+            for k in metric_ks:
+                if rank is not None and rank <= k:
+                    hit_counts[k] += 1
+                    ndcg_sums[k] += 1.0 / math.log2(rank + 1)
+
+        m = {"Total samples": total_samples}
+        for k in metric_ks:
+            m[f"HR@{k}"] = hit_counts[k] / total_samples * 100 if total_samples else 0.0
+        m["MRR"] = reciprocal_rank_sum / total_samples * 100 if total_samples else 0.0
+        for k in metric_ks:
+            m[f"NDCG@{k}"] = ndcg_sums[k] / total_samples * 100 if total_samples else 0.0
+
+        eval_results[count] = m
+
+    metric_rows = ["Total samples"] + [f"HR@{k}" for k in metric_ks] + ["MRR"] + [f"NDCG@{k}" for k in metric_ks]
+
+    # Write metrics.csv
+    csv_file = os.path.join(results_path, "metrics.csv")
+    with open(csv_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        headers = ["Metric"] + [f"{cnt}_samples" for cnt in sorted_counts]
+        writer.writerow(headers)
+        for m in metric_rows:
+            row = [m]
+            for cnt in sorted_counts:
+                val = eval_results[cnt].get(m, 0.0)
+                if m == "Total samples":
+                    row.append(str(int(val)))
+                else:
+                    row.append(f"{val:.2f}")
+            writer.writerow(row)
+
+    # Write metrics.txt (Formatted text table)
+    txt_file = os.path.join(results_path, "metrics.txt")
+    col_widths = [15] + [14] * len(sorted_counts)
+    header_strs = ["Metric".ljust(col_widths[0])] + [f"{cnt}_samples".rjust(col_widths[i+1]) for i, cnt in enumerate(sorted_counts)]
+    
+    with open(txt_file, "w", encoding="utf-8") as f:
+        f.write(f"=== Multi-Stage Evaluation Summary: {results_path} ===\n\n")
+        f.write(" | ".join(header_strs) + "\n")
+        f.write("-" * (sum(col_widths) + 3 * len(sorted_counts)) + "\n")
+        for m in metric_rows:
+            vals = [m.ljust(col_widths[0])]
+            for i, cnt in enumerate(sorted_counts):
+                val = eval_results[cnt].get(m, 0.0)
+                if m == "Total samples":
+                    s = str(int(val))
+                else:
+                    s = f"{val:.2f}%"
+                vals.append(s.rjust(col_widths[i+1]))
+            f.write(" | ".join(vals) + "\n")
+        f.write("\n")
+

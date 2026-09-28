@@ -164,12 +164,11 @@ def parse_reasoning_path(json_file_path, user_id):
             long_term_profile = reasoning_path.get("long_term_profile", {})
             short_term_profile = reasoning_path.get("short_term_profile", {})
             candidates = reasoning_path.get("candidates", {})
-            return (
-                long_term_profile.get("raw") or long_term_profile.get("parsed_profile"),
-                short_term_profile.get("raw") or short_term_profile.get("parsed_profile"),
-                candidates.get("agent1_top25", []),
-                candidates.get("agent2_top25", []),
-            )
+            ltp = (long_term_profile.get("raw") or long_term_profile.get("parsed_profile") or "None").strip()
+            stp = (short_term_profile.get("raw") or short_term_profile.get("parsed_profile") or "None").strip()
+            c1 = candidates.get("agent1_top25", []) or candidates.get("rag_top100", [])[:25]
+            c2 = candidates.get("agent2_top25", []) or candidates.get("rag_top100", [])[:25]
+            return (ltp if ltp else "None", stp if stp else "None", c1, c2)
 
         reasoning_data = {
             "long_term_profile": None,
@@ -952,8 +951,14 @@ def single_predict_save(params):
     # Load reasoning path
     long_term_profile, short_pattern_response, candidate_poi_list_agent1, candidate_poi_list_agent2 = parse_reasoning_path(
         json_file_path, user_id)
-    if not all([long_term_profile, short_pattern_response, candidate_poi_list_agent1, candidate_poi_list_agent2]):
-        raise ValueError(f"Failed to load reasoning_path for user extracted from input: {user_id}.")
+    if not long_term_profile:
+        long_term_profile = "None"
+    if not short_pattern_response:
+        short_pattern_response = "None"
+    if not candidate_poi_list_agent1:
+        candidate_poi_list_agent1 = ['0'] * args.num_candidate
+    if not candidate_poi_list_agent2:
+        candidate_poi_list_agent2 = ['0'] * args.num_candidate
 
     candidate_poi_list_agent1 = extract_and_clean_poi(
         candidate_poi_list_agent1,
@@ -1343,7 +1348,7 @@ class ForwardInferenceProcessor:
             for line in f:
                 samples.append(json.loads(line))
 
-        num_samples = min(n, len(samples))
+        num_samples = len(samples) if n <= 0 else min(n, len(samples))
         samples = samples[:num_samples]
 
         print(f"Processing {num_samples} samples with {args.batch_size} parallel workers...")
@@ -1425,11 +1430,10 @@ class ForwardInferenceProcessor:
                 interim_metrics_csv = f'{results_path}/interim_metrics_{curr_count}.csv'
                 metrics = evaluate_poi_predictions(args, interim_output_json, top_k, interim_metrics_txt, interim_metrics_csv, key='predicted_poi_ids')
                 try:
-                    import shutil
-                    shutil.copyfile(interim_metrics_txt, metrics_txt)
-                    shutil.copyfile(interim_metrics_csv, metrics_csv)
+                    from evaluate import update_cumulative_metrics
+                    update_cumulative_metrics(results_path, top_k=top_k, key='predicted_poi_ids')
                 except Exception as e:
-                    print(f"[WARN] Failed to mirror interim metrics to {metrics_txt}: {e}")
+                    print(f"[WARN] Failed to update cumulative multi-stage metrics: {e}")
                 interim_diagnostics_json = f'{results_path}/interim_diagnostics_{curr_count}.json'
                 write_prediction_diagnostics(
                     args,
