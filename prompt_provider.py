@@ -31,11 +31,14 @@ class PromptProvider:
         system_prompt_format = self._json_block(
             '{"historical_profile": "A concise long-term profile summary"}'
         )
+        his_str = str(historical_distribution) if historical_distribution is not None else "None"
+        if len(his_str) > 8000:
+            his_str = his_str[:4000] + " ... [truncated] ... " + his_str[-4000:]
         prompt_data = {
             "IDENTITY and PURPOSE": "You are an expert User Profiler specialized in constructing long-term user profiles based on the user's historical trajectory data.",
             "TASK": f"For user_{self.user_id}, use the provided historical trajectory distribution to generate a long-term profile that reflects the user's preferences, behavioral patterns, and likely characteristics.",
             "User": f"User ID:{self.user_id}",
-            "INPUT": f"User's historical trajectory data: {historical_distribution}",
+            "INPUT": f"User's historical trajectory data: {his_str}",
             "STEPS": [
                 "Identify only predictive long-term signals: recurring time windows, stable areas, favorite categories, and repeated high-signal POIs.",
                 "Compress the result into a concise profile that helps rank the next POI.",

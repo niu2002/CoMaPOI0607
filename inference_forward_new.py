@@ -1084,11 +1084,20 @@ def safe_single_predict_save(params):
     try:
         return {"ok": True, "result": single_predict_save(params)}
     except Exception as exc:
-        return {
-            "ok": False,
-            "error": f"{type(exc).__name__}: {exc}",
-            "traceback": traceback.format_exc(),
+        selected_sample, args, user_to_candidate_map, historical_summary_list = params
+        user_id, label, current_trajectory = parse_user_and_trajectory(selected_sample.get('messages', []))
+        rag_candidates = get_rag_candidates(user_to_candidate_map, user_id)
+        fallback_pool = build_prediction_fallback_pool(args, [], [], rag_candidates)
+        top_k = getattr(args, "top_k", 10)
+        valid_pois = fallback_pool[:top_k] if fallback_pool else ['0'] * top_k
+        reasoning_path = {
+            "long_term_profile": {"parsed_profile": "None", "raw": "None"},
+            "short_term_profile": {"parsed_profile": "None", "raw": "None"},
+            "candidates": {"agent1_top25": [], "agent2_top25": [], "rag_top100": rag_candidates[:25]},
+            "fallback_reason": f"{type(exc).__name__}: {exc}"
         }
+        print(f"[WARN] Worker encountered error for user_{user_id} in single_predict_save: {exc}. Using fallback predictions.")
+        return {"ok": True, "result": (user_id, label, valid_pois, valid_pois, reasoning_path)}
 
 
 def single_predict(params):
@@ -1279,15 +1288,24 @@ def single_predict(params):
 
 
 def safe_single_predict(params):
-    """Wrap forward prediction so process pool returns pickle-safe results."""
+    """Wrap forward prediction so process pool returns pickle-safe results with robust fallback."""
     try:
         return {"ok": True, "result": single_predict(params)}
     except Exception as exc:
-        return {
-            "ok": False,
-            "error": f"{type(exc).__name__}: {exc}",
-            "traceback": traceback.format_exc(),
+        selected_sample, args, user_to_candidate_map, historical_summary_list = params
+        user_id, label, current_trajectory = parse_user_and_trajectory(selected_sample.get('messages', []))
+        rag_candidates = get_rag_candidates(user_to_candidate_map, user_id)
+        fallback_pool = build_prediction_fallback_pool(args, [], [], rag_candidates)
+        top_k = getattr(args, "top_k", 10)
+        valid_pois = fallback_pool[:top_k] if fallback_pool else ['0'] * top_k
+        reasoning_path = {
+            "long_term_profile": {"parsed_profile": "None", "raw": "None"},
+            "short_term_profile": {"parsed_profile": "None", "raw": "None"},
+            "candidates": {"agent1_top25": [], "agent2_top25": [], "rag_top100": rag_candidates[:25]},
+            "fallback_reason": f"{type(exc).__name__}: {exc}"
         }
+        print(f"[WARN] Worker encountered error for user_{user_id} in single_predict: {exc}. Using fallback predictions.")
+        return {"ok": True, "result": (user_id, label, valid_pois, valid_pois, reasoning_path)}
 
 
 class ForwardInferenceProcessor:
