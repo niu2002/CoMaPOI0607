@@ -49,6 +49,8 @@ def run_command(cmd_list: list[str]) -> tuple[int, float]:
     start_time = time.time()
     res = subprocess.run(cmd_list, cwd=str(PROJECT_ROOT))
     elapsed = time.time() - start_time
+    if res.returncode != 0:
+        print(f"[ERROR] Command failed with exit code {res.returncode}")
     return res.returncode, elapsed
 
 
