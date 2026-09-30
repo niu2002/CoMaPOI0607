@@ -1461,25 +1461,37 @@ class ForwardInferenceProcessor:
                     metrics=metrics,
                 )
 
-        # Run prediction.
-        if args.batch_size <= 1:
-            predict_fn = single_predict_save if args.load_pf_output else single_predict
-            for params in tqdm(params_list, total=len(params_list), desc="Predicting POIs", colour="green"):
-                save_prediction_result(predict_fn(params))
-        else:
-            with ProcessPoolExecutor(max_workers=args.batch_size) as executor:
-                submit_fn = safe_single_predict_save if args.load_pf_output else safe_single_predict
-                futures = [executor.submit(submit_fn, params) for params in params_list]
+        # Run prediction with guaranteed intermediate flush on error.
+        try:
+            if args.batch_size <= 1:
+                predict_fn = single_predict_save if args.load_pf_output else single_predict
+                for params in tqdm(params_list, total=len(params_list), desc="Predicting POIs", colour="green"):
+                    save_prediction_result(predict_fn(params))
+            else:
+                with ProcessPoolExecutor(max_workers=args.batch_size) as executor:
+                    submit_fn = safe_single_predict_save if args.load_pf_output else safe_single_predict
+                    futures = [executor.submit(submit_fn, params) for params in params_list]
 
-                # Use green progress bar with tqdm
-                for future in tqdm(as_completed(futures), total=len(futures), desc="Predicting POIs", colour="green"):
-                    payload = future.result()
-                    if not payload["ok"]:
-                        raise RuntimeError(
-                            "Prediction worker failed: "
-                            f"{payload['error']}\n{payload['traceback']}"
-                        )
-                    save_prediction_result(payload["result"])
+                    # Use green progress bar with tqdm
+                    for future in tqdm(as_completed(futures), total=len(futures), desc="Predicting POIs", colour="green"):
+                        payload = future.result()
+                        if not payload["ok"]:
+                            raise RuntimeError(
+                                "Prediction worker failed: "
+                                f"{payload['error']}\n{payload['traceback']}"
+                            )
+                        save_prediction_result(payload["result"])
+        except (Exception, KeyboardInterrupt) as exc:
+            print(f"\n[FATAL ERROR / INTERRUPT] Caught: {exc}. Performing emergency flush...")
+            if all_predictions:
+                with open(output_json, 'w', encoding='utf-8') as f:
+                    json.dump(list(all_predictions.values()), f, ensure_ascii=False, indent=4)
+                print(f"[RECOVERY] Successfully saved {len(all_predictions)} predictions to {output_json}")
+                try:
+                    evaluate_poi_predictions(args, output_json, top_k, metrics_txt, metrics_csv, key='predicted_poi_ids')
+                except Exception as eval_err:
+                    print(f"[RECOVERY WARN] Could not update metrics on crash: {eval_err}")
+            raise exc
 
         # Save final results
         print("\n[INFO] Processing complete. Saving final prediction results.")
