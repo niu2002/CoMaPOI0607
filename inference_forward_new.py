@@ -1420,9 +1420,27 @@ class ForwardInferenceProcessor:
 
         all_predictions = {}
         completed_user_ids = set()
+
+        # 优先读取主检查点 poi_predictions.json，若无则自动寻找最新的 interim 检查点
+        checkpoint_to_load = None
         if os.path.exists(output_json):
+            checkpoint_to_load = output_json
+        else:
+            import glob
+            interim_files = glob.glob(f'{results_path}/interim_poi_predictions_*.json')
+            if interim_files:
+                # 按照样本数量大小排序，选取最大进度的 interim 文件
+                def get_sample_cnt(fname):
+                    try:
+                        return int(re.search(r'interim_poi_predictions_(\d+)\.json', fname).group(1))
+                    except Exception:
+                        return 0
+                checkpoint_to_load = max(interim_files, key=get_sample_cnt)
+                print(f"[INFO] Main checkpoint not found, automatically recovering from latest interim: {checkpoint_to_load}")
+
+        if checkpoint_to_load and os.path.exists(checkpoint_to_load):
             try:
-                with open(output_json, 'r', encoding='utf-8') as f:
+                with open(checkpoint_to_load, 'r', encoding='utf-8') as f:
                     existing_data = json.load(f)
                     if isinstance(existing_data, list):
                         for item in existing_data:
@@ -1436,9 +1454,9 @@ class ForwardInferenceProcessor:
                                 except (ValueError, TypeError):
                                     pass
                 if completed_user_ids:
-                    print(f"[INFO] Found existing predictions in checkpoint. Skipping {len(all_predictions)} completed samples.")
+                    print(f"[INFO] Successfully recovered {len(all_predictions)} completed samples from {checkpoint_to_load}. Skipping them instantly.")
             except Exception as e:
-                print(f"[WARN] Failed to load existing predictions: {e}. Starting from scratch.")
+                print(f"[WARN] Failed to load checkpoint {checkpoint_to_load}: {e}. Starting from scratch.")
                 all_predictions = {}
                 completed_user_ids = set()
 
@@ -1475,8 +1493,10 @@ class ForwardInferenceProcessor:
                 print(f"\n[INFO] Completed {len(all_predictions)} samples. Saving interim results and evaluating.")
                 interim_output_json = f'{results_path}/interim_poi_predictions_{len(all_predictions)}.json'
 
-                # Save interim predictions
+                # Save interim predictions AND keep main checkpoint file up to date
                 with open(interim_output_json, 'w', encoding='utf-8') as f:
+                    json.dump(list(all_predictions.values()), f, ensure_ascii=False, indent=4)
+                with open(output_json, 'w', encoding='utf-8') as f:
                     json.dump(list(all_predictions.values()), f, ensure_ascii=False, indent=4)
 
                 curr_count = len(all_predictions)
