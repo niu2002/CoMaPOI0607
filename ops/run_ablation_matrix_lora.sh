@@ -31,19 +31,30 @@ echo "  * 批大小: $BATCH_SIZE"
 echo "  * Agent 3 LoRA 终端: $AGENT3_BASE_URL (model: $AGENT3_LORA_MODEL)"
 echo "=============================================================================="
 
-# 1. 自动定位 Master Cache
-MASTER_CACHE="results/${DATASET}/amd_rag_lora_with_sft_${DATASET}/poi_predictions.json"
-if [ ! -f "$MASTER_CACHE" ]; then
-    # 尝试后备路径
-    if [ -f "results/${DATASET}/full_model_lora/poi_predictions.json" ]; then
-        MASTER_CACHE="results/${DATASET}/full_model_lora/poi_predictions.json"
-    elif [ -f "results/${DATASET}/full_model/poi_predictions.json" ]; then
-        MASTER_CACHE="results/${DATASET}/full_model/poi_predictions.json"
-    else
-        echo "❌ [ERROR] 未找到 Master Cache 预测文件: $MASTER_CACHE"
-        echo "请确认已完成该数据集的主实验前向推理，或将预测文件放置在 results/${DATASET}/amd_rag_lora_with_sft_${DATASET}/"
-        exit 1
-    fi
+# 1. 多候选路径自动定位 Master Cache
+find_master_cache() {
+    local ds="$1"
+    local candidates=(
+        "results/${ds}/amd_rag_lora_with_sft_${ds}/poi_predictions.json"
+        "results/${ds}/amd_rag_lora_${ds}/poi_predictions.json"
+        "results/${ds}/amd_rag_lora/poi_predictions.json"
+        "results/${ds}/full_model_lora/poi_predictions.json"
+        "results/${ds}/full_model/poi_predictions.json"
+    )
+    for c in "${candidates[@]}"; do
+        if [ -f "$c" ]; then
+            echo "$c"
+            return 0
+        fi
+    done
+    return 1
+}
+
+MASTER_CACHE=$(find_master_cache "$DATASET" || echo "")
+if [ -z "$MASTER_CACHE" ]; then
+    echo "❌ [ERROR] 未在 results/${DATASET}/ 下找到 Master Cache 预测文件！"
+    echo "请确认已完成该数据集的主实验前向推理，预测文件应位于 results/${DATASET}/amd_rag_lora_with_sft_${DATASET}/poi_predictions.json"
+    exit 1
 fi
 echo "✅ [CACHE] 成功定位 Master Cache: $MASTER_CACHE"
 
@@ -166,15 +177,15 @@ run_ablation_step "ablation_base_only" \
   ""
 
 # ==============================================================================
-# 5. 自动汇总并输出论文表格
+# 5. 自动汇总并输出当前数据集表格
 # ==============================================================================
 echo ""
 echo "=============================================================================="
-echo "🎉 所有消融组推导完成！正在生成多都市汇总与 LaTeX 表格..."
+echo "🎉 数据集 [${DATASET^^}] 所有消融组推导完成！"
 echo "=============================================================================="
 
-python3 ops/summarize_ablation_table.py --dataset "$DATASET"
+python3 ops/summarize_ablation_table.py --dataset "$DATASET" || true
 
 echo "=============================================================================="
-echo "✅ 消融实验矩阵执行与汇总完成！"
+echo "✅ [${DATASET^^}] 消融实验矩阵执行与汇总完成！"
 echo "=============================================================================="
