@@ -11,6 +11,29 @@
 
 set -eo pipefail
 
+# 自动激活 Conda 环境 (若存在)
+for conda_sh in /root/miniconda3/etc/profile.d/conda.sh /opt/conda/etc/profile.d/conda.sh /root/anaconda3/etc/profile.d/conda.sh; do
+    if [ -f "$conda_sh" ]; then
+        source "$conda_sh"
+        break
+    fi
+done
+
+if command -v conda >/dev/null 2>&1; then
+    conda activate comapoi_amd 2>/dev/null || conda activate base 2>/dev/null || true
+fi
+
+PYTHON_BIN="${PYTHON_BIN:-python}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+fi
+
+# 检查 agentscope 依赖，缺失则自动补全安装
+if ! "$PYTHON_BIN" -c "import agentscope" >/dev/null 2>&1; then
+    echo "⚠️ [DEPENDENCY] 检测到当前 Python ($PYTHON_BIN) 缺失 agentscope，正在自动安装..."
+    "$PYTHON_BIN" -m pip install "agentscope>=0.2.0" -i https://mirrors.aliyun.com/pypi/simple/ || "$PYTHON_BIN" -m pip install "agentscope>=0.2.0"
+fi
+
 DATASET="${1:-ca}"
 NUM_SAMPLES="${2:-900}"
 BATCH_SIZE="${BATCH_SIZE:-4}"
@@ -28,6 +51,7 @@ echo "🎯 GeoSemID 自动化消融实验矩阵启动"
 echo "  * 数据集: $DATASET"
 echo "  * 样本量: $NUM_SAMPLES"
 echo "  * 批大小: $BATCH_SIZE"
+echo "  * Python: $("$PYTHON_BIN" --version 2>&1) ($PYTHON_BIN)"
 echo "  * Agent 3 LoRA 终端: $AGENT3_BASE_URL (model: $AGENT3_LORA_MODEL)"
 echo "=============================================================================="
 
@@ -90,13 +114,13 @@ run_ablation_step() {
         EXISTING_COUNT=$(grep -o '"predicted_poi_ids"' "$PRED_FILE" | wc -l || echo 0)
         if [ "$EXISTING_COUNT" -ge "$NUM_SAMPLES" ]; then
             echo "⚡ [SKIP] 已完成 $EXISTING_COUNT 样本，跳过推理，执行评估..."
-            python3 evaluate.py --prediction_file "$PRED_FILE" --save_dir "$SAVE_DIR" || true
+            "$PYTHON_BIN" evaluate.py --prediction_file "$PRED_FILE" --save_dir "$SAVE_DIR" || true
             return 0
         fi
     fi
 
     # 组装命令
-    CMD="python3 inference_forward_new.py \
+    CMD="\"$PYTHON_BIN\" inference_forward_new.py \
       --dataset ${DATASET} \
       --num_samples ${NUM_SAMPLES} \
       --batch_size ${BATCH_SIZE} \
@@ -119,7 +143,7 @@ run_ablation_step() {
 
     # 执行离线多阶段与最终评估
     if [ -f "$PRED_FILE" ]; then
-        python3 evaluate.py --prediction_file "$PRED_FILE" --save_dir "$SAVE_DIR" || true
+        "$PYTHON_BIN" evaluate.py --prediction_file "$PRED_FILE" --save_dir "$SAVE_DIR" || true
     fi
 }
 
@@ -184,7 +208,7 @@ echo "==========================================================================
 echo "🎉 数据集 [${DATASET^^}] 所有消融组推导完成！"
 echo "=============================================================================="
 
-python3 ops/summarize_ablation_table.py --dataset "$DATASET" || true
+"$PYTHON_BIN" ops/summarize_ablation_table.py --dataset "$DATASET" || true
 
 echo "=============================================================================="
 echo "✅ [${DATASET^^}] 消融实验矩阵执行与汇总完成！"

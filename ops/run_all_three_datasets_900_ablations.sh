@@ -12,6 +12,23 @@
 
 set -eo pipefail
 
+# 自动激活 Conda 环境 (若存在)
+for conda_sh in /root/miniconda3/etc/profile.d/conda.sh /opt/conda/etc/profile.d/conda.sh /root/anaconda3/etc/profile.d/conda.sh; do
+    if [ -f "$conda_sh" ]; then
+        source "$conda_sh"
+        break
+    fi
+done
+
+if command -v conda >/dev/null 2>&1; then
+    conda activate comapoi_amd 2>/dev/null || conda activate base 2>/dev/null || true
+fi
+
+PYTHON_BIN="${PYTHON_BIN:-python}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+fi
+
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
@@ -22,6 +39,7 @@ echo "==========================================================================
 echo "🌟 GeoSemID 三大都市 900 样本消融实验全自动化矩阵"
 echo "  * 目标数据集: ${DATASETS[*]}"
 echo "  * 每数据集样本数: ${NUM_SAMPLES}"
+echo "  * Python: $("$PYTHON_BIN" --version 2>&1) ($PYTHON_BIN)"
 echo "=============================================================================="
 
 switch_vllm_lora() {
@@ -45,6 +63,7 @@ switch_vllm_lora() {
     SERVED_MODEL_NAME=qwen3-8b \
     OP_STR="${OP_STR_NAME}" \
     GPU_MEMORY_UTILIZATION=0.78 \
+    PYTHON_BIN="$PYTHON_BIN" \
     bash ops/serve_agent3_amd.sh
 
     echo "✅ [VLLM] ${DATASET_NAME^^} LoRA 服务就绪！"
@@ -60,7 +79,7 @@ for ds in "${DATASETS[@]}"; do
     switch_vllm_lora "$ds"
 
     # 2. 执行该都市的 7 大消融组
-    bash ops/run_ablation_matrix_lora.sh "$ds" "$NUM_SAMPLES"
+    PYTHON_BIN="$PYTHON_BIN" bash ops/run_ablation_matrix_lora.sh "$ds" "$NUM_SAMPLES"
 
     echo "✅ 数据集 [${ds^^}] 消融矩阵全部执行完毕！"
 done
@@ -71,7 +90,7 @@ echo "🎉🎉🎉 三大都市 (CA / NYC / TKY) 全量消融实验全部顺利�
 echo "=============================================================================="
 
 # 生成三大都市横向对比的完整 Table VI
-python3 ops/summarize_ablation_table.py --dataset all
+"$PYTHON_BIN" ops/summarize_ablation_table.py --dataset all || true
 
 echo "=============================================================================="
 echo "📄 论文 LaTeX 代码已写入: paper_writing/chinese/ablation_table_generated.tex"
