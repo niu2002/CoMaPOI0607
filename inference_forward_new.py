@@ -195,23 +195,23 @@ def parse_reasoning_path(json_file_path, user_id):
     """
     Parse reasoning path using in-memory cached map in O(1) time.
     """
-    cache = load_all_reasoning_paths(json_file_path)
-    if user_id in cache:
-        return cache[user_id]
-    user_id_str = str(user_id)
-    if user_id_str in cache:
-        return cache[user_id_str]
     try:
-        user_id_int = int(user_id)
-        if user_id_int in cache:
-            return cache[user_id_int]
-    except (ValueError, TypeError):
-        pass
-    return ("None", "None", [], [])
-
+        cache = load_all_reasoning_paths(json_file_path)
+        if user_id in cache:
+            return cache[user_id]
+        user_id_str = str(user_id)
+        if user_id_str in cache:
+            return cache[user_id_str]
+        try:
+            user_id_int = int(user_id)
+            if user_id_int in cache:
+                return cache[user_id_int]
+        except (ValueError, TypeError):
+            pass
+        return ("None", "None", [], [])
     except Exception as e:
-        print(f"Error while parsing reasoning_path: {e}")
-        return None, None, None, None
+        print(f"[WARN] Error while parsing reasoning_path: {e}")
+        return "None", "None", [], []
 
 
 def check_extra_information(long_term_profile, short_term_profile, candidate_poi_list_agent1, candidate_poi_list_agent2):
