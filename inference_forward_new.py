@@ -137,66 +137,77 @@ def merge_valid_pois(existing_pois, new_pois, top_k):
     return existing_pois
 
 
+_REASONING_CACHE = {}
+
+
+def load_all_reasoning_paths(json_file_path):
+    """Pre-load and cache the entire reasoning path JSON into memory."""
+    if json_file_path in _REASONING_CACHE:
+        return _REASONING_CACHE[json_file_path]
+
+    cache = {}
+    if os.path.exists(json_file_path):
+        try:
+            with open(json_file_path, 'r', encoding='utf-8') as file:
+                data = json.load(file)
+            for item in data:
+                uid = item.get("user_id")
+                if uid is None or 'reasoning_path' not in item:
+                    continue
+                reasoning_path = item['reasoning_path']
+                if isinstance(reasoning_path, dict):
+                    long_term_profile = reasoning_path.get("long_term_profile", {})
+                    short_term_profile = reasoning_path.get("short_term_profile", {})
+                    candidates = reasoning_path.get("candidates", {})
+                    ltp = (long_term_profile.get("raw") or long_term_profile.get("parsed_profile") or "None").strip()
+                    stp = (short_term_profile.get("raw") or short_term_profile.get("parsed_profile") or "None").strip()
+                    c1 = candidates.get("agent1_top25", []) or candidates.get("rag_top100", [])[:25]
+                    c2 = candidates.get("agent2_top25", []) or candidates.get("rag_top100", [])[:25]
+                    parsed_res = (ltp if ltp else "None", stp if stp else "None", c1, c2)
+                else:
+                    try:
+                        ltp_s = reasoning_path.find("long_term_profile:")
+                        stp_s = reasoning_path.find("short_pattern_response:")
+                        c1_s = reasoning_path.find("candidate_poi_list_agent1:")
+                        c2_s = reasoning_path.find("candidate_poi_list_agent2:")
+                        fp_s = reasoning_path.find(", final_prediction:")
+                        c2_e = fp_s if fp_s >= 0 else len(reasoning_path)
+                        ltp = reasoning_path[ltp_s:stp_s].replace("long_term_profile: ", "").strip().rstrip(",")
+                        stp = reasoning_path[stp_s:c1_s].replace("short_pattern_response: ", "").strip().rstrip(",")
+                        c1 = reasoning_path[c1_s:c2_s].replace("candidate_poi_list_agent1: ", "").strip().rstrip(",")
+                        c2 = reasoning_path[c2_s:c2_e].replace("candidate_poi_list_agent2: ", "").strip().rstrip(",")
+                        parsed_res = (ltp, stp, c1, c2)
+                    except Exception:
+                        parsed_res = ("None", "None", [], [])
+                cache[str(uid)] = parsed_res
+                try:
+                    cache[int(uid)] = parsed_res
+                except (ValueError, TypeError):
+                    pass
+        except Exception as e:
+            print(f"[WARN] Error preloading reasoning paths from {json_file_path}: {e}")
+
+    _REASONING_CACHE[json_file_path] = cache
+    return cache
+
+
 def parse_reasoning_path(json_file_path, user_id):
     """
-    Parse reasoning path from a JSON file and extract relevant components.
-
-    Args:
-        json_file_path: Path to the JSON file containing reasoning paths
-        user_id: User ID to look up
-
-    Returns:
-        tuple: (long_term_profile, short_pattern_response, candidate_poi_list_agent1, candidate_poi_list_agent2)
+    Parse reasoning path using in-memory cached map in O(1) time.
     """
+    cache = load_all_reasoning_paths(json_file_path)
+    if user_id in cache:
+        return cache[user_id]
+    user_id_str = str(user_id)
+    if user_id_str in cache:
+        return cache[user_id_str]
     try:
-        # Read JSON file
-        with open(json_file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-
-        # Find data for the specified user_id
-        user_data = next((item for item in data if str(item.get("user_id")) == str(user_id)), None)
-        if not user_data or 'reasoning_path' not in user_data:
-            raise ValueError(f"User ID {user_id} not found in JSON file or missing reasoning_path.")
-
-        reasoning_path = user_data['reasoning_path']
-
-        if isinstance(reasoning_path, dict):
-            long_term_profile = reasoning_path.get("long_term_profile", {})
-            short_term_profile = reasoning_path.get("short_term_profile", {})
-            candidates = reasoning_path.get("candidates", {})
-            ltp = (long_term_profile.get("raw") or long_term_profile.get("parsed_profile") or "None").strip()
-            stp = (short_term_profile.get("raw") or short_term_profile.get("parsed_profile") or "None").strip()
-            c1 = candidates.get("agent1_top25", []) or candidates.get("rag_top100", [])[:25]
-            c2 = candidates.get("agent2_top25", []) or candidates.get("rag_top100", [])[:25]
-            return (ltp if ltp else "None", stp if stp else "None", c1, c2)
-
-        reasoning_data = {
-            "long_term_profile": None,
-            "short_pattern_response": None,
-            "candidate_poi_list_agent1": None,
-            "candidate_poi_list_agent2": None
-        }
-
-        # Extract each part from reasoning_path
-        try:
-            long_term_profile_start = reasoning_path.find("long_term_profile:")
-            short_pattern_response_start = reasoning_path.find("short_pattern_response:")
-            candidate_poi_list_agent1_start = reasoning_path.find("candidate_poi_list_agent1:")
-            candidate_poi_list_agent2_start = reasoning_path.find("candidate_poi_list_agent2:")
-            final_prediction_start = reasoning_path.find(", final_prediction:")
-
-            if min(long_term_profile_start, short_pattern_response_start, candidate_poi_list_agent1_start, candidate_poi_list_agent2_start) < 0:
-                raise ValueError("missing expected reasoning_path markers")
-
-            candidate2_end = final_prediction_start if final_prediction_start >= 0 else len(reasoning_path)
-            reasoning_data["long_term_profile"] = reasoning_path[long_term_profile_start:short_pattern_response_start].replace("long_term_profile: ", "").strip().rstrip(",")
-            reasoning_data["short_pattern_response"] = reasoning_path[short_pattern_response_start:candidate_poi_list_agent1_start].replace("short_pattern_response: ", "").strip().rstrip(",")
-            reasoning_data["candidate_poi_list_agent1"] = reasoning_path[candidate_poi_list_agent1_start:candidate_poi_list_agent2_start].replace("candidate_poi_list_agent1: ", "").strip().rstrip(",")
-            reasoning_data["candidate_poi_list_agent2"] = reasoning_path[candidate_poi_list_agent2_start:candidate2_end].replace("candidate_poi_list_agent2: ", "").strip().rstrip(",")
-        except Exception as parse_error:
-            raise ValueError(f"Error parsing reasoning_path: {parse_error}")
-
-        return reasoning_data["long_term_profile"], reasoning_data["short_pattern_response"], reasoning_data["candidate_poi_list_agent1"], reasoning_data["candidate_poi_list_agent2"]
+        user_id_int = int(user_id)
+        if user_id_int in cache:
+            return cache[user_id_int]
+    except (ValueError, TypeError):
+        pass
+    return ("None", "None", [], [])
 
     except Exception as e:
         print(f"Error while parsing reasoning_path: {e}")
@@ -1416,10 +1427,16 @@ class ForwardInferenceProcessor:
                     if isinstance(existing_data, list):
                         for item in existing_data:
                             if isinstance(item, dict) and "user_id" in item:
-                                all_predictions[item["user_id"]] = item
-                                completed_user_ids.add(item["user_id"])
+                                uid = item["user_id"]
+                                all_predictions[uid] = item
+                                completed_user_ids.add(uid)
+                                completed_user_ids.add(str(uid))
+                                try:
+                                    completed_user_ids.add(int(uid))
+                                except (ValueError, TypeError):
+                                    pass
                 if completed_user_ids:
-                    print(f"[INFO] Found existing predictions in checkpoint. Skipping {len(completed_user_ids)} completed samples.")
+                    print(f"[INFO] Found existing predictions in checkpoint. Skipping {len(all_predictions)} completed samples.")
             except Exception as e:
                 print(f"[WARN] Failed to load existing predictions: {e}. Starting from scratch.")
                 all_predictions = {}
@@ -1430,8 +1447,15 @@ class ForwardInferenceProcessor:
         for i in range(args.start_point, n):
             selected_sample = samples[i % num_samples]
             user_id = selected_sample.get("user_id")
-            if user_id in completed_user_ids:
+            if user_id is None:
+                user_id, _, _ = parse_user_and_trajectory(selected_sample.get('messages', []))
+            if user_id in completed_user_ids or str(user_id) in completed_user_ids:
                 continue
+            try:
+                if int(user_id) in completed_user_ids:
+                    continue
+            except (ValueError, TypeError):
+                pass
             params = (selected_sample, args, user_to_candidate_map, historical_summary_list)
             params_list.append(params)
 
