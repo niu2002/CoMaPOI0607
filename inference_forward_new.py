@@ -1372,6 +1372,41 @@ class ForwardInferenceProcessor:
                 
         user_to_candidate_map = load_candidate_list(candidate_output_json)
 
+        # Load samples
+        samples = []
+        sample_file_path = f'dataset_all/{dataset}/{args.mode}/{dataset}_{args.mode}.jsonl'
+        if not os.path.exists(sample_file_path):
+            fallback_sample_path = f'dataset_all/{dataset}_{args.mode}.jsonl'
+            if os.path.exists(fallback_sample_path):
+                sample_file_path = fallback_sample_path
+                print(f"[INFO] Using fallback dataset path: {sample_file_path}")
+
+        with open(sample_file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                samples.append(json.loads(line))
+
+        num_samples = len(samples) if n <= 0 else min(n, len(samples))
+        samples = samples[:num_samples]
+
+        print(f"Processing {num_samples} samples with {args.batch_size} parallel workers...")
+
+        # Load or generate historical summaries
+        historical_summary_list = []
+        if not getattr(args, "load_pf_output", False):
+            historical_distribution_path = f'dataset_all/{args.dataset}/{args.dataset}_historical_summary.jsonl'
+            if not os.path.exists(historical_distribution_path):
+                fallback_his_path = f'dataset_all/{args.dataset}_historical_summary.jsonl'
+                if os.path.exists(fallback_his_path):
+                    historical_distribution_path = fallback_his_path
+                    
+            if os.path.exists(historical_distribution_path):
+                print(f"[INFO] Loading historical profiles from {historical_distribution_path}")
+                with open(historical_distribution_path, 'r', encoding='utf-8') as f:
+                    historical_summary_list = [json.loads(line) for line in f]
+            else:
+                print(f"[INFO] Generating historical profiles...")
+                historical_summary_list = React_process_and_save_profiles(args, historical_distribution_path)
+
         all_predictions = {}
         completed_user_ids = set()
         if os.path.exists(output_json):
