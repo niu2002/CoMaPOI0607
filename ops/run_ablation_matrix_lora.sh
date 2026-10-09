@@ -35,9 +35,10 @@ if ! "$PYTHON_BIN" -c "import agentscope; from agentscope.message import Msg" >/
 fi
 
 DATASET="${1:-ca}"
-NUM_SAMPLES="${2:-900}"
-BATCH_SIZE="${BATCH_SIZE:-4}"
-TEST_INTERVAL="${TEST_INTERVAL:-50}"
+NUM_SAMPLES="${2:-1818}"
+BATCH_SIZE="${BATCH_SIZE:-16}"
+TEST_INTERVAL="${TEST_INTERVAL:-100}"
+AGENT3_MAX_TOKENS="${AGENT3_MAX_TOKENS:-512}"
 AGENT3_BASE_URL="${AGENT3_BASE_URL:-http://localhost:7863/v1}"
 AGENT3_API_KEY="${AGENT3_API_KEY:-EMPTY}"
 AGENT3_LORA_MODEL="${AGENT3_LORA_MODEL:-agent3}"
@@ -130,7 +131,7 @@ run_ablation_step() {
       --agent3_base_url \"${AGENT3_BASE_URL}\" \
       --agent3_api_key \"${AGENT3_API_KEY}\" \
       --agent3_api \"${AGENT3_API_TARGET}\" \
-      --agent3_max_tokens 2048 \
+      --agent3_max_tokens ${AGENT3_MAX_TOKENS} \
       --test_interval ${TEST_INTERVAL} \
       --load_pf_output \
       --saved_results_path \"${MASTER_CACHE}\" \
