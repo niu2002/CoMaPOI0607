@@ -298,18 +298,26 @@ def build_source_lists(args, current_trajectory: str, rag_candidates: Any,
     dataset = getattr(args, "dataset", "ca")
     fused_top_k = int(getattr(args, "fused_candidate_top_k", 50))
     source_limit = max(100, fused_top_k)
+    weights = parse_rrf_weights(getattr(args, "rrf_weights", ""))
 
     events = parse_trajectory_events(current_trajectory, max_item=max_item)
     poi_info = load_poi_info(dataset)
-    popular = load_popular_pois(dataset, max_item)
+
+    # 惰性求值：若专家权重为 0 则直接返回空列表，完全省去该专家的 CPU 计算
+    geo_res = geo_near(events, poi_info, limit=int(getattr(args, "geo_candidate_k", 50))) if weights.get("geo_near", 1.0) > 0 else []
+    cat_res = category_similar(events, poi_info, limit=int(getattr(args, "category_candidate_k", 50))) if weights.get("category_similar", 1.0) > 0 else []
+    rec_res = history_recent(events, limit=int(getattr(args, "history_candidate_k", 30))) if weights.get("history_recent", 1.0) > 0 else []
+    freq_res = history_frequent(events, limit=int(getattr(args, "history_candidate_k", 30))) if weights.get("history_freq", 1.0) > 0 else []
+    
+    popular = load_popular_pois(dataset, max_item) if weights.get("popular_global", 1.0) > 0 else []
 
     return {
-        "rag_top100": normalize_poi_ids(rag_candidates, max_item, limit=source_limit),
-        "history_recent": history_recent(events, limit=int(getattr(args, "history_candidate_k", 30))),
-        "history_freq": history_frequent(events, limit=int(getattr(args, "history_candidate_k", 30))),
-        "geo_near": geo_near(events, poi_info, limit=int(getattr(args, "geo_candidate_k", 50))),
-        "category_similar": category_similar(events, poi_info, limit=int(getattr(args, "category_candidate_k", 50))),
-        "popular_global": normalize_poi_ids(popular, max_item, limit=int(getattr(args, "popular_candidate_k", 50))),
+        "rag_top100": normalize_poi_ids(rag_candidates, max_item, limit=source_limit) if weights.get("rag_top100", 1.0) > 0 else [],
+        "history_recent": rec_res,
+        "history_freq": freq_res,
+        "geo_near": geo_res,
+        "category_similar": cat_res,
+        "popular_global": normalize_poi_ids(popular, max_item, limit=int(getattr(args, "popular_candidate_k", 50))) if popular else [],
         "agent1_candidates": normalize_poi_ids(agent1_candidates, max_item, limit=int(getattr(args, "num_candidate", 25))),
         "agent2_candidates": normalize_poi_ids(agent2_candidates, max_item, limit=int(getattr(args, "num_candidate", 25))),
     }
