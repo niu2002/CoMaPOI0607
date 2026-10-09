@@ -1,0 +1,20 @@
+\begin{table*}[!t]
+\centering
+\caption{GeoSemID 核心模块及检索专家的消融实验对比表}
+\label{tab:ablation_studies}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lcc}\toprule
+消融设置 & \multicolumn{2}{c}{CA} \\ 
+ & HR@10 & MRR \\ \midrule
+\textbf{Full GeoSemID (Ours)} & -- & -- \\ \midrule
+w/o Hierarchical Semantic ID (HSID) & -- & -- \\
+w/o Dynamic Router (Fixed RRF / Union) & -- & -- \\
+w/o Spatial Expert & -- & -- \\
+w/o Transition Expert & -- & -- \\
+w/o Temporal Expert & -- & -- \\
+w/o Semantic Expert & -- & -- \\ \midrule
+w/o SFT (Base-only Qwen3-8B) & -- & -- \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
