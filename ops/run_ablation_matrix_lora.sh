@@ -28,10 +28,10 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
     PYTHON_BIN="python3"
 fi
 
-# 检查 agentscope 依赖，缺失则自动补全安装
-if ! "$PYTHON_BIN" -c "import agentscope" >/dev/null 2>&1; then
-    echo "⚠️ [DEPENDENCY] 检测到当前 Python ($PYTHON_BIN) 缺失 agentscope，正在自动安装..."
-    "$PYTHON_BIN" -m pip install "agentscope>=0.2.0" -i https://mirrors.aliyun.com/pypi/simple/ || "$PYTHON_BIN" -m pip install "agentscope>=0.2.0"
+# 检查 agentscope 依赖，缺失或版本异常则自动补全安装兼容版
+if ! "$PYTHON_BIN" -c "import agentscope; from agentscope.message import Msg" >/dev/null 2>&1; then
+    echo "⚠️ [DEPENDENCY] 正在自动安装兼容版本 agentscope==0.1.6 与 loguru==0.6.0..."
+    "$PYTHON_BIN" -m pip install "agentscope==0.1.6" "loguru==0.6.0" -i https://mirrors.aliyun.com/pypi/simple/ || "$PYTHON_BIN" -m pip install "agentscope==0.1.6" "loguru==0.6.0"
 fi
 
 DATASET="${1:-ca}"

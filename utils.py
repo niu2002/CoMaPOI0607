@@ -1,4 +1,14 @@
-from agentscope.parsers import MarkdownJsonDictParser
+try:
+    from agentscope.parsers import MarkdownJsonDictParser
+except (ImportError, ModuleNotFoundError):
+    try:
+        from agentscope.parsers.json_parser import MarkdownJsonDictParser
+    except (ImportError, ModuleNotFoundError):
+        class MarkdownJsonDictParser:
+            def __init__(self, content_hint=None, **kwargs):
+                self.content_hint = content_hint
+            def parse(self, msg):
+                return msg
 
 import json
 import os

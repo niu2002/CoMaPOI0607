@@ -3,9 +3,14 @@ from agentscope.agents import DictDialogAgent, ReActAgent, DialogAgent
 from agentscope.exception import ResponseParsingError
 from agentscope.agents import AgentBase
 from agentscope.message import Msg
-from agentscope.parsers import RegexTaggedContentParser
-from loguru import logger
-from agentscope.parsers import ParserBase
+try:
+    from agentscope.parsers import RegexTaggedContentParser, ParserBase
+except (ImportError, ModuleNotFoundError):
+    class ParserBase:
+        pass
+    class RegexTaggedContentParser(ParserBase):
+        def __init__(self, *args, **kwargs):
+            pass
 from agentscope.service import (
     ServiceToolkit,  # Provides service tools
     ServiceResponse,  # Service response object
