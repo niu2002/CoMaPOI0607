@@ -366,7 +366,7 @@ def load_candidate_list(candidate_output_json):
 
     try:
         if os.path.exists(candidate_output_json):
-            print(f"Loading candidate list from {candidate_output_json}")
+            print(f"[INFO] Loading candidate list from {candidate_output_json}")
             with open(candidate_output_json, 'r', encoding='utf-8') as f:
                 for line in f:
                     try:
@@ -374,14 +374,20 @@ def load_candidate_list(candidate_output_json):
                         user_id = data.get('user_id')
                         candidates = data.get('candidates', [])
 
-                        if user_id and candidates:
+                        if user_id is not None and candidates:
                             user_to_candidate_map[user_id] = candidates
+                            user_to_candidate_map[str(user_id)] = candidates
+                            try:
+                                user_to_candidate_map[int(user_id)] = candidates
+                            except (ValueError, TypeError):
+                                pass
                     except json.JSONDecodeError:
                         continue
+            print(f"[INFO] Successfully loaded {len(user_to_candidate_map) // 2} user candidates from {candidate_output_json}")
         else:
-            print(f"Candidate list file not found: {candidate_output_json}")
+            print(f"[WARN] Candidate list file not found: {candidate_output_json}")
     except Exception as e:
-        print(f"Error loading candidate list: {e}")
+        print(f"[ERROR] Error loading candidate list: {e}")
 
     return user_to_candidate_map
 

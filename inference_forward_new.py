@@ -1348,50 +1348,27 @@ class ForwardInferenceProcessor:
 
         strategy = getattr(args, "strategy", "rag")
         strategy_suffix = f"_{strategy}" if strategy != "rag" else ""
-        if getattr(args, "use_hsid", False):
-            candidate_output_json = data_path + f"/{args.dataset}_{args.mode}_candidates_hsid{strategy_suffix}.jsonl"
-        else:
-            candidate_output_json = data_path + f"/{args.dataset}_{args.mode}_candidates{strategy_suffix}.jsonl"
-
-        # Load samples
-        samples = []
-        sample_file_path = f'dataset_all/{dataset}/{args.mode}/{dataset}_{args.mode}.jsonl'
-        if not os.path.exists(sample_file_path):
-            fallback_sample_path = f'dataset_all/{dataset}_{args.mode}.jsonl'
-            if os.path.exists(fallback_sample_path):
-                sample_file_path = fallback_sample_path
-                print(f"[INFO] Using fallback dataset path: {sample_file_path}")
-
-        with open(sample_file_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                samples.append(json.loads(line))
-
-        num_samples = len(samples) if n <= 0 else min(n, len(samples))
-        samples = samples[:num_samples]
-
-        print(f"Processing {num_samples} samples with {args.batch_size} parallel workers...")
-
-        # Load or generate historical summaries
-        historical_distribution_path = f'dataset_all/{args.dataset}/{args.dataset}_historical_summary.jsonl'
-        if not os.path.exists(historical_distribution_path):
-            fallback_his_path = f'dataset_all/{args.dataset}_historical_summary.jsonl'
-            if os.path.exists(fallback_his_path):
-                historical_distribution_path = fallback_his_path
-                
-        if os.path.exists(historical_distribution_path):
-            print(f"[INFO] Loading historical profiles from {historical_distribution_path}")
-            with open(historical_distribution_path, 'r', encoding='utf-8') as f:
-                historical_summary_list = [json.loads(line) for line in f]
-        else:
-            print(f"[INFO] Generating historical profiles...")
-            historical_summary_list = React_process_and_save_profiles(args, historical_distribution_path)
-
-        # Load candidate list with fallback check
-        if not os.path.exists(candidate_output_json):
-            fallback_cand_json = f"dataset_all/{args.dataset}_{args.mode}_candidates_hsid{strategy_suffix}.jsonl" if getattr(args, "use_hsid", False) else f"dataset_all/{args.dataset}_{args.mode}_candidates{strategy_suffix}.jsonl"
-            if os.path.exists(fallback_cand_json):
-                candidate_output_json = fallback_cand_json
-                print(f"[INFO] Using fallback candidate json path: {candidate_output_json}")
+        
+        # 候选池文件多级自适应查找 (优先匹配当前模式，若无则智能复用已有的候选池)
+        candidate_candidates = [
+            data_path + f"/{args.dataset}_{args.mode}_candidates_hsid{strategy_suffix}.jsonl" if getattr(args, "use_hsid", False) else data_path + f"/{args.dataset}_{args.mode}_candidates{strategy_suffix}.jsonl",
+            data_path + f"/{args.dataset}_{args.mode}_candidates_hsid.jsonl" if getattr(args, "use_hsid", False) else data_path + f"/{args.dataset}_{args.mode}_candidates.jsonl",
+            data_path + f"/{args.dataset}_{args.mode}_candidates_hsid{strategy_suffix}.jsonl",
+            data_path + f"/{args.dataset}_{args.mode}_candidates_hsid.jsonl",
+            data_path + f"/{args.dataset}_{args.mode}_candidates{strategy_suffix}.jsonl",
+            data_path + f"/{args.dataset}_{args.mode}_candidates.jsonl",
+            f"dataset_all/{args.dataset}_{args.mode}_candidates_hsid{strategy_suffix}.jsonl",
+            f"dataset_all/{args.dataset}_{args.mode}_candidates_hsid.jsonl",
+            f"dataset_all/{args.dataset}_{args.mode}_candidates{strategy_suffix}.jsonl",
+            f"dataset_all/{args.dataset}_{args.mode}_candidates.jsonl",
+        ]
+        
+        candidate_output_json = candidate_candidates[0]
+        for cand_path in candidate_candidates:
+            if os.path.exists(cand_path):
+                candidate_output_json = cand_path
+                print(f"[INFO] Successfully resolved candidate json path: {candidate_output_json}")
+                break
                 
         user_to_candidate_map = load_candidate_list(candidate_output_json)
 
