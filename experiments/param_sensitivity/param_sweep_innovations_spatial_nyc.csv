@@ -1,0 +1,9 @@
+﻿Spatial Cutoff d_start (km),Spatial Expert Ground-truth Retention (%)
+0.5,32.79
+1.0,41.19
+2.0,52.13
+3.0,59.72
+5.0,69.43
+10.0,83.81
+15.0,90.69
+50.0,100.0
