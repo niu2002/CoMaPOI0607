@@ -35,9 +35,25 @@ print(project_root / "finetune" / "results" / op_str / f"sft-{dataset}" / save_n
 PY
 }
 
+PATH_ENV_FILE="$PROJECT_ROOT/finetune/results/$OP_STR/sft-$DATASET/agent3_path.env"
+if [[ -f "$PATH_ENV_FILE" ]]; then
+  echo "[agent3-serve] sourcing adapter path from $PATH_ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$PATH_ENV_FILE"
+fi
+
 export AGENT1_ADAPTER_PATH="${AGENT1_ADAPTER_PATH:-}"
 export AGENT2_ADAPTER_PATH="${AGENT2_ADAPTER_PATH:-}"
 export AGENT3_ADAPTER_PATH="${AGENT3_ADAPTER_PATH:-$(resolve_adapter_path)}"
+
+if [[ ! -d "$AGENT3_ADAPTER_PATH" ]]; then
+  # Fallback: scan for any bs*-gas*-ms*-agent3-lr* directory
+  FOUND_ADAPTER=$(find "$PROJECT_ROOT/finetune/results/$OP_STR/sft-$DATASET" -maxdepth 1 -type d -name "bs*-agent3-lr*" 2>/dev/null | head -n 1 || true)
+  if [[ -n "$FOUND_ADAPTER" && -d "$FOUND_ADAPTER" ]]; then
+    export AGENT3_ADAPTER_PATH="$FOUND_ADAPTER"
+    echo "[agent3-serve] auto-detected adapter at $AGENT3_ADAPTER_PATH"
+  fi
+fi
 
 if [[ ! -d "$AGENT3_ADAPTER_PATH" ]]; then
   echo "[agent3-serve] agent3 adapter path not found: $AGENT3_ADAPTER_PATH"
