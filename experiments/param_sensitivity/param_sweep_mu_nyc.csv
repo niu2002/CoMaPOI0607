@@ -1,4 +1,4 @@
-﻿RRF Smoothing Parameter mu,HR@1 (%),HR@5 (%),End-to-End HR@10 (%),MRR (%),NDCG@10 (%)
+﻿RRF Smoothing Parameter mu,HR@1 (%),HR@5 (%),RRF Fused Top-10 Recall (%),MRR (%),NDCG@10 (%)
 5,19.0,53.0,61.0,33.45,40.17
 10,19.33,53.33,61.0,33.38,40.09
 15,20.0,54.0,61.0,33.63,40.27

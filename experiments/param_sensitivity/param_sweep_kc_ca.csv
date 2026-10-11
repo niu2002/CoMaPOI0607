@@ -1,7 +1,7 @@
-﻿Semantic Cluster Capacity Kc,Non-singleton Bucket Coverage (%),Semantic Collision Rate (%),Long-tail Slice HR@10 (%),Global HR@10 (%)
-32,100.0,37.1,29.3,38.28
-64,100.0,11.7,30.9,39.68
-128,100.0,6.9,32.5,41.08
-256,100.0,3.6,34.1,42.48
-512,98.8,2.2,32.5,41.08
-1024,97.6,1.7,30.9,39.68
+﻿Semantic Cluster Capacity Kc,Non-singleton Bucket Coverage (%),Mean Spatial Radius (km),Normalized Spatial Inertia
+32,100.0,19.51,0.030906
+64,100.0,10.95,0.009738
+128,100.0,8.42,0.005753
+256,100.0,6.1,0.003019
+512,98.8,4.8,0.001869
+1024,97.6,4.12,0.001377

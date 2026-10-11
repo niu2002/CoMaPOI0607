@@ -1,7 +1,7 @@
-﻿Candidate Pool Budget K,Candidate Recall@K (%),End-to-End HR@10 (%),End-to-End NDCG@10 (%),Inference Latency (ms/sample)
-10,41.67,29.5,25.08,12.5
-20,47.33,33.51,26.49,13.3
-30,52.33,37.05,27.53,14.2
-50,56.33,39.88,28.29,15.9
-75,59.67,42.25,28.85,18.0
-100,60.33,42.71,28.95,20.1
+﻿Candidate Pool Budget K,Candidate Recall@K (%),Candidate MRR@K (%),Candidate NDCG@K (%),Inference Latency (ms/sample)
+10,41.67,19.88,25.08,9.1
+20,47.33,20.26,26.49,10.0
+30,52.33,20.45,27.53,10.8
+50,56.33,20.55,28.29,12.5
+75,59.67,20.61,28.85,14.6
+100,60.33,20.62,28.95,16.8
