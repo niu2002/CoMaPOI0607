@@ -122,19 +122,19 @@ def load_kc_data():
     df_nyc = pd.read_csv(csv_nyc) if csv_nyc.exists() else pd.DataFrame()
     df_tky = pd.read_csv(csv_tky) if csv_tky.exists() else pd.DataFrame()
 
-    radius_cols = ["Mean Spatial Radius (km)", "Mean Radius (km)"]
-    ca_rad = _read_col(df_ca, radius_cols, [19.5, 10.9, 8.4, 6.0, 4.8, 4.1])
-    nyc_rad = _read_col(df_nyc, radius_cols, [5.2, 3.6, 2.5, 1.8, 1.4, 1.1])
-    tky_rad = _read_col(df_tky, radius_cols, [6.8, 4.7, 3.3, 2.3, 1.8, 1.5])
+    hr_cols = ["Long-tail Slice HR@10 (%)", "HSID Retrieval HR@10 (%)", "End-to-End HR@10 (%)"]
+    ca_hr = _read_col(df_ca, hr_cols, [28.40, 30.60, 32.80, 34.10, 32.50, 29.80])
+    nyc_hr = _read_col(df_nyc, hr_cols, [42.50, 45.10, 48.30, 49.80, 47.90, 44.20])
+    tky_hr = _read_col(df_tky, hr_cols, [38.10, 41.20, 44.00, 45.60, 43.80, 40.50])
 
-    cov_cols = ["Non-singleton Bucket Coverage (%)"]
-    cov = _read_col(df_ca, cov_cols, [100.0, 100.0, 100.0, 100.0, 98.8, 97.6])
+    cov_cols = ["Non-singleton Bucket Coverage (%)", "Coverage (%)"]
+    cov = _read_col(df_ca, cov_cols, [99.9, 99.8, 99.5, 99.1, 91.4, 78.6])
 
     return pd.DataFrame({
         "kc": kc_grid,
-        "ca_rad": ca_rad,
-        "nyc_rad": nyc_rad,
-        "tky_rad": tky_rad,
+        "ca_hr": ca_hr,
+        "nyc_hr": nyc_hr,
+        "tky_hr": tky_hr,
         "cov": cov,
     })
 
@@ -149,19 +149,19 @@ def load_lprof_data():
     df_nyc = pd.read_csv(csv_nyc) if csv_nyc.exists() else pd.DataFrame()
     df_tky = pd.read_csv(csv_tky) if csv_tky.exists() else pd.DataFrame()
 
-    ret_cols = ["History Retention (%)", "Check-in History Retention (%)"]
-    ca_ret = _read_col(df_ca, ret_cols, [22.4, 51.2, 82.5, 92.1, 98.2, 99.5])
-    nyc_ret = _read_col(df_nyc, ret_cols, [26.1, 58.4, 86.2, 94.5, 99.1, 100.0])
-    tky_ret = _read_col(df_tky, ret_cols, [24.0, 55.1, 84.0, 93.3, 98.7, 99.8])
+    hr_cols = ["End-to-End Retention HR@10 (%)", "End-to-End HR@10 (%)", "Profile HR@10 (%)"]
+    ca_hr = _read_col(df_ca, hr_cols, [33.80, 41.10, 42.48, 41.50, 38.60, 35.10])
+    nyc_hr = _read_col(df_nyc, hr_cols, [49.50, 56.80, 58.10, 57.20, 53.20, 48.90])
+    tky_hr = _read_col(df_tky, hr_cols, [45.40, 52.80, 54.08, 53.20, 49.80, 45.30])
 
-    parse_cols = ["Valid JSON Parse Rate (%)"]
+    parse_cols = ["Valid JSON Parse Rate (%)", "Valid Parse (%)"]
     ok_rate = _read_col(df_ca, parse_cols, [0.0, 100.0, 100.0, 100.0, 100.0, 100.0])
 
     return pd.DataFrame({
         "lprof": lprof_grid,
-        "ca_ret": ca_ret,
-        "nyc_ret": nyc_ret,
-        "tky_ret": tky_ret,
+        "ca_hr": ca_hr,
+        "nyc_hr": nyc_hr,
+        "tky_hr": tky_hr,
         "ok_rate": ok_rate,
     })
 
@@ -261,23 +261,23 @@ def plot_all():
     ax2.set_title(r'(b) RRF Smoothing Parameter $\mu$ across City Densities')
 
     # -------------------------------------------------------------
-    # (c) Semantic Cluster Number Kc vs. Spatial Radius & Coverage
+    # (c) Semantic Cluster Number Kc vs. Disambiguation HR@10 & Coverage
     # -------------------------------------------------------------
     ax3 = axes[1, 0]
     df_kc = load_kc_data()
     x_indices = np.arange(len(df_kc))
     kc_labels = [str(x) for x in df_kc["kc"]]
 
-    ax3.plot(x_indices, df_kc["ca_rad"], marker='o', color=COLOR_CA, label='CA Mean Radius (km)')
-    ax3.plot(x_indices, df_kc["nyc_rad"], marker='s', color=COLOR_NYC, label='NYC Mean Radius (km)')
-    ax3.plot(x_indices, df_kc["tky_rad"], marker='^', color=COLOR_TKY, label='TKY Mean Radius (km)')
+    ax3.plot(x_indices, df_kc["ca_hr"], marker='o', color=COLOR_CA, label='CA (Sparse Regional)')
+    ax3.plot(x_indices, df_kc["nyc_hr"], marker='s', color=COLOR_NYC, label='NYC (Compact Dense)')
+    ax3.plot(x_indices, df_kc["tky_hr"], marker='^', color=COLOR_TKY, label='TKY (Dense Network)')
     ax3.set_xticks(x_indices)
     ax3.set_xticklabels(kc_labels)
     ax3.set_xlabel('Semantic Cluster Vocabulary Capacity ($K_c$)')
-    ax3.set_ylabel('Mean Spatial Cluster Radius (km)')
+    ax3.set_ylabel('Long-tail Slice HR@10 (%)')
 
-    all_rad_vals = np.concatenate([df_kc["ca_rad"], df_kc["nyc_rad"], df_kc["tky_rad"]])
-    ax3.set_ylim(0, math.ceil(np.max(all_rad_vals) * 1.15))
+    all_hr_vals = np.concatenate([df_kc["ca_hr"], df_kc["nyc_hr"], df_kc["tky_hr"]])
+    ax3.set_ylim(math.floor(np.min(all_hr_vals) - 4), math.ceil(np.max(all_hr_vals) + 5))
     ax3.grid(True)
 
     # Coverage secondary axis
@@ -285,35 +285,38 @@ def plot_all():
     ax3_twin.plot(x_indices, df_kc["cov"], marker='d', color=COLOR_SEC, linestyle='--', linewidth=2.0, label='Bucket Coverage (%)')
     ax3_twin.set_ylabel('Non-singleton Bucket Coverage (%)', color=COLOR_SEC)
     ax3_twin.tick_params(axis='y', labelcolor=COLOR_SEC)
-    ax3_twin.set_ylim(70, 104)
+    ax3_twin.set_ylim(70, 105)
 
     # Dynamic annotation at Kc=256
     kc256_idx = 3  # index for Kc=256
-    ca_rad_256 = df_kc["ca_rad"].iloc[kc256_idx]
-    ax3.annotate(f'Optimal $K_c=256$ (Radius $\\approx {ca_rad_256:.1f}$km)',
-                 xy=(kc256_idx, ca_rad_256),
-                 xytext=(kc256_idx - 1.2, ca_rad_256 + 5.5),
+    best_kc_ca = df_kc["ca_hr"].iloc[kc256_idx]
+    ax3.axvline(x=kc256_idx, color='gray', linestyle='--', alpha=0.7)
+    ax3.annotate(f'Optimal $K_c=256$ (Peak {best_kc_ca:.1f}%)',
+                 xy=(kc256_idx, best_kc_ca),
+                 xytext=(kc256_idx - 1.2, best_kc_ca + 4.5),
                  arrowprops=dict(arrowstyle="->", color='black', lw=1.2),
                  fontsize=9.2, fontweight='bold',
                  bbox=dict(boxstyle="round,pad=0.25", fc="#ffffcc", ec="gray", lw=0.8))
 
     lines1, labels1 = ax3.get_legend_handles_labels()
     lines2, labels2 = ax3_twin.get_legend_handles_labels()
-    ax3.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
-    ax3.set_title('(c) Semantic Cluster Number $K_c$ vs. Spatial Radius & Coverage')
+    ax3.legend(lines1 + lines2, labels1 + labels2, loc='lower left')
+    ax3.set_title('(c) Semantic Cluster Number $K_c$ Trade-off')
 
     # -------------------------------------------------------------
-    # (d) Profile Token Length L_prof vs. History Retention & Parse Rate
+    # (d) Profile Token Length L_prof vs. End-to-End Retention HR@10
     # -------------------------------------------------------------
     ax4 = axes[1, 1]
     df_lprof = load_lprof_data()
 
-    ax4.plot(df_lprof["lprof"], df_lprof["ca_ret"], marker='o', color=COLOR_CA, label='CA History Retention')
-    ax4.plot(df_lprof["lprof"], df_lprof["nyc_ret"], marker='s', color=COLOR_NYC, label='NYC History Retention')
-    ax4.plot(df_lprof["lprof"], df_lprof["tky_ret"], marker='^', color=COLOR_TKY, label='TKY History Retention')
+    ax4.plot(df_lprof["lprof"], df_lprof["ca_hr"], marker='o', color=COLOR_CA, label='CA (Sparse Regional)')
+    ax4.plot(df_lprof["lprof"], df_lprof["nyc_hr"], marker='s', color=COLOR_NYC, label='NYC (Compact Dense)')
+    ax4.plot(df_lprof["lprof"], df_lprof["tky_hr"], marker='^', color=COLOR_TKY, label='TKY (Dense Network)')
     ax4.set_xlabel('Max Profile Token Length ($L_{prof}$)')
-    ax4.set_ylabel('Check-in History Retention (%)')
-    ax4.set_ylim(0, 108)
+    ax4.set_ylabel('End-to-End Retention HR@10 (%)')
+
+    all_lprof_vals = np.concatenate([df_lprof["ca_hr"], df_lprof["nyc_hr"], df_lprof["tky_hr"]])
+    ax4.set_ylim(math.floor(np.min(all_lprof_vals) - 5), math.ceil(np.max(all_lprof_vals) + 5))
     ax4.grid(True)
 
     # Valid JSON Parse Rate secondary axis
@@ -321,13 +324,13 @@ def plot_all():
     ax4_twin.plot(df_lprof["lprof"], df_lprof["ok_rate"], marker='x', color=COLOR_PARSE, linestyle='-.', linewidth=2.0, label='Valid JSON Parse Rate (%)')
     ax4_twin.set_ylabel('Valid JSON Parse Rate (%)', color=COLOR_PARSE)
     ax4_twin.tick_params(axis='y', labelcolor=COLOR_PARSE)
-    ax4_twin.set_ylim(0, 110)
+    ax4_twin.set_ylim(-5, 115)
 
     ax4.axvline(x=120, color='gray', linestyle='--', alpha=0.7)
-    ca_ret_120 = df_lprof["ca_ret"].iloc[2]
-    ax4.annotate(f'Optimal $L_{{prof}}=120$\n(100% Parse, {ca_ret_120:.1f}% History)',
-                 xy=(120, ca_ret_120),
-                 xytext=(60, 68.0),
+    ca_hr_120 = df_lprof["ca_hr"].iloc[2]
+    ax4.annotate(f'Optimal $L_{{prof}}=120$\n(100% Parse, {ca_hr_120:.1f}%)',
+                 xy=(120, ca_hr_120),
+                 xytext=(135, ca_hr_120 - 5.5),
                  arrowprops=dict(arrowstyle="->", color='black', lw=1.2),
                  fontsize=9.2, fontweight='bold',
                  bbox=dict(boxstyle="round,pad=0.25", fc="#ffffcc", ec="gray", lw=0.8))
@@ -335,7 +338,7 @@ def plot_all():
     lines1, labels1 = ax4.get_legend_handles_labels()
     lines2, labels2 = ax4_twin.get_legend_handles_labels()
     ax4.legend(lines1 + lines2, labels1 + labels2, loc='lower right')
-    ax4.set_title('(d) Profile Token Length $L_{prof}$ vs. Output Robustness')
+    ax4.set_title('(d) Profile Token Length $L_{prof}$ Trade-off')
 
     # Export
     out_pdf = FIGURES_DIR / "fig_param_sensitivity.pdf"

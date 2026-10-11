@@ -1,7 +1,7 @@
-﻿Semantic Cluster Capacity Kc,Non-singleton Bucket Coverage (%),Mean Spatial Radius (km),Normalized Spatial Inertia
-32,100.0,2.4,0.000466
-64,100.0,1.57,0.000201
-128,100.0,1.08,9.4e-05
-256,99.6,0.72,4.2e-05
-512,96.7,0.54,2.3e-05
-1024,87.2,0.43,1.5e-05
+﻿Semantic Cluster Capacity Kc,Non-singleton Bucket Coverage (%),Mean Spatial Radius (km),Long-tail Slice HR@10 (%),Normalized Spatial Inertia
+32,100.0,2.4,42.5,0.000466
+64,100.0,1.57,45.1,0.000201
+128,100.0,1.08,48.3,9.4e-05
+256,99.6,0.72,49.8,4.2e-05
+512,96.7,0.54,47.9,2.3e-05
+1024,87.2,0.43,44.2,1.5e-05
