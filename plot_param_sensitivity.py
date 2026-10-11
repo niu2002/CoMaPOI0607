@@ -260,5 +260,7 @@ def plot_all():
     print(f"[SUCCESS] Preview image saved to: {out_png}")
 
 
+main = plot_all
+
 if __name__ == "__main__":
     plot_all()
