@@ -120,6 +120,23 @@ def load_mu_data():
 
 def load_kc_data():
     kc_grid = [32, 64, 128, 256, 512, 1024]
+    real_csv = EXPERIMENTS_DIR / "param_sweep_kc_real.csv"
+    if real_csv.exists():
+        df_real = pd.read_csv(real_csv)
+        df_real.columns = [c.lstrip('\ufeff').strip() for c in df_real.columns]
+        ca_c = [c for c in df_real.columns if "CA" in c and "HR" in c]
+        nyc_c = [c for c in df_real.columns if "NYC" in c and "HR" in c]
+        tky_c = [c for c in df_real.columns if "TKY" in c and "HR" in c]
+        cov_c = [c for c in df_real.columns if "Coverage" in c]
+        if ca_c and nyc_c and tky_c and cov_c:
+            return pd.DataFrame({
+                "kc": kc_grid,
+                "ca_hr": df_real[ca_c[0]].values,
+                "nyc_hr": df_real[nyc_c[0]].values,
+                "tky_hr": df_real[tky_c[0]].values,
+                "cov": df_real[cov_c[0]].values,
+            })
+
     csv_ca = EXPERIMENTS_DIR / "param_sweep_kc_ca.csv"
     csv_nyc = EXPERIMENTS_DIR / "param_sweep_kc_nyc.csv"
     csv_tky = EXPERIMENTS_DIR / "param_sweep_kc_tky.csv"
@@ -128,7 +145,7 @@ def load_kc_data():
     df_nyc = pd.read_csv(csv_nyc) if csv_nyc.exists() else pd.DataFrame()
     df_tky = pd.read_csv(csv_tky) if csv_tky.exists() else pd.DataFrame()
 
-    hr_cols = ["Long-tail Slice HR@10 (%)", "HSID Retrieval HR@10 (%)", "End-to-End HR@10 (%)"]
+    hr_cols = ["Disambiguation HR@10 (%)", "Long-tail Slice HR@10 (%)", "HSID Retrieval HR@10 (%)", "End-to-End HR@10 (%)"]
     ca_hr = _read_col(df_ca, hr_cols, [28.40, 30.60, 32.80, 34.10, 32.50, 29.80])
     nyc_hr = _read_col(df_nyc, hr_cols, [42.50, 45.10, 48.30, 49.80, 47.90, 44.20])
     tky_hr = _read_col(df_tky, hr_cols, [38.10, 41.20, 44.00, 45.60, 43.80, 40.50])
@@ -147,6 +164,23 @@ def load_kc_data():
 
 def load_lprof_data():
     lprof_grid = [40, 80, 120, 160, 240, 320]
+    real_csv = EXPERIMENTS_DIR / "param_sweep_lprof_real.csv"
+    if real_csv.exists():
+        df_real = pd.read_csv(real_csv)
+        df_real.columns = [c.lstrip('\ufeff').strip() for c in df_real.columns]
+        ca_c = [c for c in df_real.columns if "CA" in c and "HR" in c]
+        nyc_c = [c for c in df_real.columns if "NYC" in c and "HR" in c]
+        tky_c = [c for c in df_real.columns if "TKY" in c and "HR" in c]
+        parse_c = [c for c in df_real.columns if "JSON" in c or "Parse" in c]
+        if ca_c and nyc_c and tky_c and parse_c:
+            return pd.DataFrame({
+                "lprof": lprof_grid,
+                "ca_hr": df_real[ca_c[0]].values,
+                "nyc_hr": df_real[nyc_c[0]].values,
+                "tky_hr": df_real[tky_c[0]].values,
+                "ok_rate": df_real[parse_c[0]].values,
+            })
+
     csv_ca = EXPERIMENTS_DIR / "param_sweep_lprof_ca.csv"
     csv_nyc = EXPERIMENTS_DIR / "param_sweep_lprof_nyc.csv"
     csv_tky = EXPERIMENTS_DIR / "param_sweep_lprof_tky.csv"
