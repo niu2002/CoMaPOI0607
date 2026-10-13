@@ -245,9 +245,9 @@ def plot_all():
     ca_k50_idx = list(df_k["k"]).index(50) if 50 in list(df_k["k"]) else 3
     ca_k50_val = df_k["ca_rec"].iloc[ca_k50_idx]
     ax1.axvline(x=50, color='gray', linestyle='--', alpha=0.7)
-    ax1.annotate(f'Pareto Knee ($K=50$, {ca_k50_val:.1f}%)',
+    ax1.annotate(f'Pareto Knee ($K=50$)\n(CA: {ca_k50_val:.1f}%)',
                  xy=(50, ca_k50_val),
-                 xytext=(28, ca_k50_val + 7.5),
+                 xytext=(26, ca_k50_val + 7.5),
                  arrowprops=dict(arrowstyle="->", color='black', lw=1.2),
                  fontsize=9.2, fontweight='bold',
                  bbox=dict(boxstyle="round,pad=0.25", fc="#ffffcc", ec="gray", lw=0.8))
@@ -263,13 +263,13 @@ def plot_all():
     ax2 = axes[0, 1]
     df_mu = load_mu_data()
 
-    ax2.plot(df_mu["mu"], df_mu["ca_hr"], marker='o', color=COLOR_CA, label='CA (Sparse, Large-scale)')
-    ax2.plot(df_mu["mu"], df_mu["nyc_hr"], marker='s', color=COLOR_NYC, label='NYC (Compact, Dense)')
-    ax2.plot(df_mu["mu"], df_mu["tky_hr"], marker='^', color=COLOR_TKY, label='TKY (High-density Network)')
+    ax2.plot(df_mu["mu"], df_mu["ca_hr"], marker='o', color=COLOR_CA, label='CA (Sparse Regional)')
+    ax2.plot(df_mu["mu"], df_mu["nyc_hr"], marker='s', color=COLOR_NYC, label='NYC (Compact Dense)')
+    ax2.plot(df_mu["mu"], df_mu["tky_hr"], marker='^', color=COLOR_TKY, label='TKY (Dense Network)')
     ax2.set_xlabel(r'RRF Smoothing Constant ($\mu$)')
     ax2.set_ylabel('RRF Fused Top-10 Recall (%)')
 
-    # Dynamic Y-axis limits: ensures NYC (61%) is completely visible with breathing room!
+    # Dynamic Y-axis limits
     all_mu_vals = np.concatenate([df_mu["ca_hr"], df_mu["nyc_hr"], df_mu["tky_hr"]])
     mu_ymin = math.floor(np.min(all_mu_vals) - 4)
     mu_ymax = math.ceil(np.max(all_mu_vals) + 5)
@@ -277,26 +277,21 @@ def plot_all():
     ax2.grid(True)
     ax2.legend(loc='lower right')
 
-    # Dynamic peak annotations: zero hardcoded coordinates!
-    # CA peak
+    # Peak & Plateau annotation
     best_ca_idx = int(np.argmax(df_mu["ca_hr"].values))
     best_ca_mu = df_mu["mu"].iloc[best_ca_idx]
     best_ca_val = df_mu["ca_hr"].iloc[best_ca_idx]
-    ax2.annotate(rf'CA Opt: $\mu={best_ca_mu}$ ({best_ca_val:.1f}%)',
-                 xy=(best_ca_mu, best_ca_val),
-                 xytext=(best_ca_mu + 6, best_ca_val + 3.0),
-                 arrowprops=dict(arrowstyle="->", color=COLOR_CA, lw=1.2),
-                 fontsize=9, fontweight='bold')
 
-    # NYC peak
     best_nyc_idx = int(np.argmax(df_mu["nyc_hr"].values))
     best_nyc_mu = df_mu["mu"].iloc[best_nyc_idx]
     best_nyc_val = df_mu["nyc_hr"].iloc[best_nyc_idx]
-    ax2.annotate(rf'NYC Opt: $\mu={best_nyc_mu}$ ({best_nyc_val:.1f}%)',
-                 xy=(best_nyc_mu, best_nyc_val),
-                 xytext=(best_nyc_mu + 8, best_nyc_val - 3.2),
-                 arrowprops=dict(arrowstyle="->", color=COLOR_NYC, lw=1.2),
-                 fontsize=9, fontweight='bold')
+
+    ax2.annotate(rf'Robust Plateau: $\mu \in [15, 50]$' + f'\n(CA: {best_ca_val:.1f}%, NYC: {best_nyc_val:.1f}%)',
+                 xy=(30, (best_nyc_val + best_ca_val) / 2.0),
+                 xytext=(36, best_ca_val + 6.0),
+                 arrowprops=dict(arrowstyle="->", color='black', lw=1.2),
+                 fontsize=9.2, fontweight='bold',
+                 bbox=dict(boxstyle="round,pad=0.25", fc="#ffffcc", ec="gray", lw=0.8))
 
     ax2.set_title(r'(b) RRF Smoothing Parameter $\mu$ across City Densities')
 
@@ -314,7 +309,7 @@ def plot_all():
     ax3.set_xticks(x_indices)
     ax3.set_xticklabels(kc_labels)
     ax3.set_xlabel('Semantic Cluster Vocabulary Capacity ($K_c$)')
-    ax3.set_ylabel('Long-tail Slice HR@10 (%)')
+    ax3.set_ylabel('End-to-End HR@10 (%)')
 
     all_hr_vals = np.concatenate([df_kc["ca_hr"], df_kc["nyc_hr"], df_kc["tky_hr"]])
     ax3.set_ylim(math.floor(np.min(all_hr_vals) - 4), math.ceil(np.max(all_hr_vals) + 5))
@@ -330,10 +325,11 @@ def plot_all():
     # Dynamic annotation at Kc=256
     kc256_idx = 3  # index for Kc=256
     best_kc_ca = df_kc["ca_hr"].iloc[kc256_idx]
+    best_kc_nyc = df_kc["nyc_hr"].iloc[kc256_idx]
     ax3.axvline(x=kc256_idx, color='gray', linestyle='--', alpha=0.7)
-    ax3.annotate(f'Optimal $K_c=256$ (Peak {best_kc_ca:.1f}%)',
+    ax3.annotate(f'Optimal $K_c=256$\n(CA: {best_kc_ca:.1f}%, NYC: {best_kc_nyc:.1f}%)',
                  xy=(kc256_idx, best_kc_ca),
-                 xytext=(kc256_idx - 1.2, best_kc_ca + 4.5),
+                 xytext=(kc256_idx - 1.45, best_kc_ca + 4.8),
                  arrowprops=dict(arrowstyle="->", color='black', lw=1.2),
                  fontsize=9.2, fontweight='bold',
                  bbox=dict(boxstyle="round,pad=0.25", fc="#ffffcc", ec="gray", lw=0.8))
@@ -368,9 +364,9 @@ def plot_all():
 
     ax4.axvline(x=120, color='gray', linestyle='--', alpha=0.7)
     ca_hr_120 = df_lprof["ca_hr"].iloc[2]
-    ax4.annotate(f'Optimal $L_{{prof}}=120$\n(100% Parse, {ca_hr_120:.1f}%)',
+    ax4.annotate(f'Optimal $L_{{prof}}=120$\n(100% Parse, CA: {ca_hr_120:.1f}%)',
                  xy=(120, ca_hr_120),
-                 xytext=(135, ca_hr_120 - 5.5),
+                 xytext=(130, ca_hr_120 - 6.0),
                  arrowprops=dict(arrowstyle="->", color='black', lw=1.2),
                  fontsize=9.2, fontweight='bold',
                  bbox=dict(boxstyle="round,pad=0.25", fc="#ffffcc", ec="gray", lw=0.8))

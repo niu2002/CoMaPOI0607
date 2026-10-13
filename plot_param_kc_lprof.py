@@ -98,10 +98,10 @@ def plot_combined_kc_lprof(df_kc: pd.DataFrame, df_lprof: pd.DataFrame, out_pref
 
     line_ca, = ax1.plot(x_indices, ca_hr, marker='o', color=COLOR_CA, label='CA (Sparse Regional)')
     line_nyc, = ax1.plot(x_indices, nyc_hr, marker='s', color=COLOR_NYC, label='NYC (Compact Dense)')
-    line_tky, = ax1.plot(x_indices, tky_hr, marker='^', color=COLOR_TKY, label='TKY (Dense Rail Network)')
+    line_tky, = ax1.plot(x_indices, tky_hr, marker='^', color=COLOR_TKY, label='TKY (Dense Network)')
 
     ax1.set_xlabel(r'Semantic Cluster Capacity ($K_c$)')
-    ax1.set_ylabel('Disambiguation HR@10 (%)')
+    ax1.set_ylabel('End-to-End HR@10 (%)')
     ax1.set_xticks(x_indices)
     ax1.set_xticklabels(kc_labels)
 
@@ -121,12 +121,13 @@ def plot_combined_kc_lprof(df_kc: pd.DataFrame, df_lprof: pd.DataFrame, out_pref
     # Optimal Kc=256 annotation
     kc256_idx = list(kc_vals).index(256) if 256 in kc_vals else 3
     ax1.axvline(x=kc256_idx, color='gray', linestyle=':', alpha=0.8, linewidth=1.5)
-    best_tky = tky_hr[kc256_idx]
+    best_ca_kc = ca_hr[kc256_idx]
+    best_nyc_kc = nyc_hr[kc256_idx]
     ax1.annotate(
-        f'Optimal $K_c=256$\nPeak Balance ({best_tky:.1f}%)',
-        xy=(kc256_idx, best_tky),
-        xytext=(kc256_idx - 1.35, best_tky + 3.8),
-        arrowprops=dict(arrowstyle="->", color=COLOR_TKY, lw=1.3),
+        f'Optimal $K_c=256$\n(CA: {best_ca_kc:.1f}%, NYC: {best_nyc_kc:.1f}%)',
+        xy=(kc256_idx, best_ca_kc),
+        xytext=(kc256_idx - 1.45, best_ca_kc + 4.8),
+        arrowprops=dict(arrowstyle="->", color='black', lw=1.2),
         fontsize=9.2, fontweight='bold',
         bbox=dict(boxstyle="round,pad=0.28", fc="#fff9e6", ec="#cc9900", lw=0.9),
     )
@@ -154,7 +155,7 @@ def plot_combined_kc_lprof(df_kc: pd.DataFrame, df_lprof: pd.DataFrame, out_pref
 
     line_lp_ca, = ax2.plot(lprof_vals, lp_ca_hr, marker='o', color=COLOR_CA, label='CA (Sparse Regional)')
     line_lp_nyc, = ax2.plot(lprof_vals, lp_nyc_hr, marker='s', color=COLOR_NYC, label='NYC (Compact Dense)')
-    line_lp_tky, = ax2.plot(lprof_vals, lp_tky_hr, marker='^', color=COLOR_TKY, label='TKY (Dense Rail Network)')
+    line_lp_tky, = ax2.plot(lprof_vals, lp_tky_hr, marker='^', color=COLOR_TKY, label='TKY (Dense Network)')
 
     ax2.set_xlabel(r'Max Profile Token Length ($L_{prof}$)')
     ax2.set_ylabel('End-to-End Retention HR@10 (%)')
@@ -176,12 +177,13 @@ def plot_combined_kc_lprof(df_kc: pd.DataFrame, df_lprof: pd.DataFrame, out_pref
     # Optimal L_prof=120 annotation
     ax2.axvline(x=120, color='gray', linestyle=':', alpha=0.8, linewidth=1.5)
     lp120_idx = list(lprof_vals).index(120) if 120 in lprof_vals else 2
+    best_ca_lp = lp_ca_hr[lp120_idx]
     best_nyc_lp = lp_nyc_hr[lp120_idx]
     ax2.annotate(
-        f'Optimal $L_{{prof}}=120$\n100% Parse & Peak HR ({best_nyc_lp:.1f}%)',
-        xy=(120, best_nyc_lp),
-        xytext=(135, best_nyc_lp - 6.5),
-        arrowprops=dict(arrowstyle="->", color=COLOR_NYC, lw=1.3),
+        f'Optimal $L_{{prof}}=120$\n(100% Parse, CA: {best_ca_lp:.1f}%)',
+        xy=(120, best_ca_lp),
+        xytext=(135, best_ca_lp - 6.5),
+        arrowprops=dict(arrowstyle="->", color='black', lw=1.2),
         fontsize=9.2, fontweight='bold',
         bbox=dict(boxstyle="round,pad=0.28", fc="#f3e6ff", ec=COLOR_PARSE, lw=0.9),
     )
