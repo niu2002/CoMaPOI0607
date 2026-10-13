@@ -29,7 +29,12 @@ from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    import subprocess
+    subprocess.run([sys.executable, "-m", "pip", "install", "matplotlib", "-q"], check=False)
+    import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import requests

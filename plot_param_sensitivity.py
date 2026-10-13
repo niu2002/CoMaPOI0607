@@ -17,7 +17,13 @@ import math
 import os
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    import subprocess
+    import sys
+    subprocess.run([sys.executable, "-m", "pip", "install", "matplotlib", "-q"], check=False)
+    import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
