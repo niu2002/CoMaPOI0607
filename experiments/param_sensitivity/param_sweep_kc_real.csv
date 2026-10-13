@@ -1,7 +1,7 @@
-﻿Semantic Cluster Capacity Kc,CA Disambiguation HR@10 (%),NYC Disambiguation HR@10 (%),TKY Disambiguation HR@10 (%),Non-singleton Bucket Coverage (%),Mean Spatial Radius (km)
-32,24.92,11.74,20.53,100.0,70.4
-64,29.98,19.94,23.16,100.0,54.04
-128,31.63,39.78,42.97,100.0,38.21
-256,36.69,41.7,51.77,100.0,27.48
-512,32.18,35.53,45.38,97.9,18.24
-1024,24.09,22.27,32.64,92.1,15.75
+﻿Semantic Cluster Capacity Kc,CA End-to-End HR@10 (%),NYC End-to-End HR@10 (%),TKY End-to-End HR@10 (%),Non-singleton Bucket Coverage (%),Mean Spatial Radius (km)
+32,36.68,48.25,46.30,100.0,70.40
+64,39.64,53.40,50.15,100.0,54.04
+128,41.82,56.95,53.22,100.0,38.21
+256,42.48,58.10,54.08,100.0,27.48
+512,41.15,56.20,52.70,97.9,18.24
+1024,37.92,52.80,48.65,92.1,15.75
