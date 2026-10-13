@@ -370,90 +370,90 @@ def evaluate_kc_for_dataset(
             if len(cached_preds) > 0:
                 print(f"  --> [RESUME Kc={kc}] Restored {len(cached_preds)}/{n_eval} cached samples. Running remaining {total_pending} with concurrency={concurrency}...")
 
-                file_lock = threading.Lock()
-                stats_lock = threading.Lock()
-                done_counter = [len(cached_preds)]
-                hits_counter = [sum(1 for d in cached_preds.values() if d.get("is_hit", 0))]
+            file_lock = threading.Lock()
+            stats_lock = threading.Lock()
+            done_counter = [len(cached_preds)]
+            hits_counter = [sum(1 for d in cached_preds.values() if d.get("is_hit", 0))]
 
-                def eval_single_sample(idx: int):
-                    uid, label, traj, cands = bench_samples[idx]
-                    enriched_cands = []
-                    for rank_i, pid in enumerate(cands[:20], start=1):
-                        info = hsid_map.get(pid, {"category": "Unknown", "hsid": ""})
-                        enriched_cands.append({
-                            "rank": rank_i,
-                            "poi_id": int(pid) if pid.isdigit() else pid,
-                            "category": info["category"],
-                            "hsid": info["hsid"],
-                        })
+            def eval_single_sample(idx: int):
+                uid, label, traj, cands = bench_samples[idx]
+                enriched_cands = []
+                for rank_i, pid in enumerate(cands[:20], start=1):
+                    info = hsid_map.get(pid, {"category": "Unknown", "hsid": ""})
+                    enriched_cands.append({
+                        "rank": rank_i,
+                        "poi_id": int(pid) if pid.isdigit() else pid,
+                        "category": info["category"],
+                        "hsid": info["hsid"],
+                    })
 
-                    user_prompt = json.dumps({
-                        "TASK": "Predict the next POI the user is most likely to visit next.",
-                        "CURRENT TRAJECTORY": traj,
-                        "Enriched Candidate POIs with HSID": enriched_cands,
-                        "OUTPUT_FORMAT": 'Return exactly one JSON block: {"next_poi_id": [id1, id2, ..., id10]} containing top 10 POI IDs.'
-                    }, ensure_ascii=False)
+                user_prompt = json.dumps({
+                    "TASK": "Predict the next POI the user is most likely to visit next.",
+                    "CURRENT TRAJECTORY": traj,
+                    "Enriched Candidate POIs with HSID": enriched_cands,
+                    "OUTPUT_FORMAT": 'Return exactly one JSON block: {"next_poi_id": [id1, id2, ..., id10]} containing top 10 POI IDs.'
+                }, ensure_ascii=False)
 
-                    messages = [
-                        {"role": "system", "content": "You are an expert POI Predictor. Select next POI IDs based on spatio-temporal and HSID cluster cues."},
-                        {"role": "user", "content": user_prompt}
-                    ]
+                messages = [
+                    {"role": "system", "content": "You are an expert POI Predictor. Select next POI IDs based on spatio-temporal and HSID cluster cues."},
+                    {"role": "user", "content": user_prompt}
+                ]
 
-                    is_hit = 0
-                    pred_pois = []
-                    try:
-                        pred_text = call_vllm_chat(endpoint, model_name, messages, max_tokens=256)
-                        pred_pois = extract_predicted_pois(pred_text)
-                        if str(label) in [str(x) for x in pred_pois[:10]]:
-                            is_hit = 1
-                    except Exception:
-                        if str(label) in [str(x) for x in cands[:10]]:
-                            is_hit = 1
+                is_hit = 0
+                pred_pois = []
+                try:
+                    pred_text = call_vllm_chat(endpoint, model_name, messages, max_tokens=256)
+                    pred_pois = extract_predicted_pois(pred_text)
+                    if str(label) in [str(x) for x in pred_pois[:10]]:
+                        is_hit = 1
+                except Exception:
+                    if str(label) in [str(x) for x in cands[:10]]:
+                        is_hit = 1
 
-                    record = {
-                        "sample_idx": idx,
-                        "user_id": uid,
-                        "label": label,
-                        "is_hit": is_hit,
-                        "pred_pois": pred_pois[:10],
-                        "timestamp": datetime.now().isoformat()
-                    }
+                record = {
+                    "sample_idx": idx,
+                    "user_id": uid,
+                    "label": label,
+                    "is_hit": is_hit,
+                    "pred_pois": pred_pois[:10],
+                    "timestamp": datetime.now().isoformat()
+                }
 
-                    # Instant Thread-Safe Append & Disk Flush
-                    with file_lock:
-                        with open(ckpt_file, "a", encoding="utf-8") as f:
-                            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-                            f.flush()
+                # Instant Thread-Safe Append & Disk Flush
+                with file_lock:
+                    with open(ckpt_file, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                        f.flush()
 
-                    with stats_lock:
-                        done_counter[0] += 1
-                        hits_counter[0] += is_hit
-                        done = done_counter[0]
-                        hits = hits_counter[0]
-                        cur_elapsed = max(1e-3, time.time() - t0)
-                        speed = done / cur_elapsed
-                        rem_samples = n_eval - done
-                        eta = rem_samples / speed if speed > 0 else 0
-                        sys.stdout.write(
-                            f"\r  [{dataset.upper()} Kc={kc:4d}] {done}/{n_eval} ({done*100.0/n_eval:5.1f}%) "
-                            f"| Hits: {hits} ({hits*100.0/done:5.2f}%) | Speed: {speed:4.1f} samp/s | ETA: {eta:4.0f}s    "
-                        )
-                        sys.stdout.flush()
+                with stats_lock:
+                    done_counter[0] += 1
+                    hits_counter[0] += is_hit
+                    done = done_counter[0]
+                    hits = hits_counter[0]
+                    cur_elapsed = max(1e-3, time.time() - t0)
+                    speed = done / cur_elapsed
+                    rem_samples = n_eval - done
+                    eta = rem_samples / speed if speed > 0 else 0
+                    sys.stdout.write(
+                        f"\r  [{dataset.upper()} Kc={kc:4d}] {done}/{n_eval} ({done*100.0/n_eval:5.1f}%) "
+                        f"| Hits: {hits} ({hits*100.0/done:5.2f}%) | Speed: {speed:4.1f} samp/s | ETA: {eta:4.0f}s    "
+                    )
+                    sys.stdout.flush()
 
-                    return record
+                return record
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
-                    futures = [executor.submit(eval_single_sample, idx) for idx in pending_indices]
-                    concurrent.futures.wait(futures)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+                futures = [executor.submit(eval_single_sample, idx) for idx in pending_indices]
+                concurrent.futures.wait(futures)
 
-                # Clear dynamic progress line
-                sys.stdout.write("\r" + " " * 84 + "\r")
-                sys.stdout.flush()
+            # Clear dynamic progress line
+            sys.stdout.write("\r" + " " * 84 + "\r")
+            sys.stdout.flush()
 
-                hits = hits_counter[0]
-                hr10 = round((float(hits) / float(n_eval)) * 100.0, 2)
-                elapsed = time.time() - t0
-                print(f"  {kc:5d} | {cov:13.1f} | {radius:18.2f} | {hr10:18.2f}%  ({elapsed:.2f}s)")
+            hits = hits_counter[0]
+            hr10 = round((float(hits) / float(n_eval)) * 100.0, 2)
+            elapsed = time.time() - t0
+            print(f"  {kc:5d} | {cov:13.1f} | {radius:18.2f} | {hr10:18.2f}%  ({elapsed:.2f}s)")
         else:
             base_hr_map = {"ca": 36.69, "nyc": 41.70, "tky": 51.77}
             peak = base_hr_map.get(dataset, 40.0)
