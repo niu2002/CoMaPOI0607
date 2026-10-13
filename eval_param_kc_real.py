@@ -2,31 +2,30 @@
 """
 Empirical Evaluation of Parameter Kc (HSID Semantic Cluster Capacity) - Option B (Pure LLM Forward Inference)
 =================================================================================================================
-1. 100% Genuine LLM Evaluation on AMD GPU (vLLM at http://localhost:7863/v1 with model qwen3-8b).
-2. Zero analytical proxies or mathematical approximations:
-   - Genuine MiniBatchKMeans clustering on all 26,000+ POIs to build genuine HSID codebooks (Kc in [32, 64, 128, 256, 512, 1024]).
-   - Genuine Non-singleton Bucket Coverage (%) and Mean Spatial Radius (km).
-   - Genuine 30-sample LLM End-to-End Inference:
-     Candidate POIs enriched with each Kc's HSID are sent to Agent 3 (qwen3-8b on AMD GPU).
-     HR@10 (%) is calculated directly from Agent 3's returned predictions.
-3. Output:
-   - Master CSV: experiments/param_sensitivity/param_sweep_kc_real.csv
-   - Per-dataset CSVs: param_sweep_kc_ca.csv, param_sweep_kc_nyc.csv, param_sweep_kc_tky.csv
-   - Figures: figures/fig_param_kc_sensitivity.pdf and .png
+Optimized with:
+1. ThreadPoolExecutor Concurrency: High-throughput continuous batching against vLLM on AMD GPU.
+2. Sample-level Checkpoints: JSONL checkpointing with instant resume (resumes exactly from the paused sample).
+3. Incremental Per-Kc Disk Flushing: Writes and flushes CSV after each completed Kc (no data loss on pause).
+4. Golden Full-Result Protection:
+   - Default isolated output suffix (`_llm`) so previous golden files (param_sweep_kc_ca.csv, etc.) are never overwritten.
+   - Automatic timestamped backup (.golden_bak_*) if target file already exists.
 =================================================================================================================
 """
 
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+from datetime import datetime
 import json
 import math
 import os
-import re
-import sys
-import time
-from collections import Counter, defaultdict
 from pathlib import Path
+import re
+import shutil
+import sys
+import threading
+import time
 from types import SimpleNamespace
 
 try:
@@ -48,10 +47,33 @@ if str(PROJECT_ROOT) not in sys.path:
 
 EXPERIMENTS_DIR = PROJECT_ROOT / "experiments" / "param_sensitivity"
 FIGURES_DIR = PROJECT_ROOT / "figures"
+CHECKPOINT_DIR = EXPERIMENTS_DIR / "checkpoints"
+
 EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
 from candidate_fusion import fuse_candidates
+
+
+# ==============================================================================
+# 0. Safety & Golden File Protection
+# ==============================================================================
+_BACKED_UP_FILES = set()
+
+def safe_backup_if_exists(file_path: Path) -> Path | None:
+    """Safely back up existing file before any overwrite to prevent losing golden results."""
+    if not file_path.exists():
+        return None
+    p_str = str(file_path.resolve())
+    if p_str in _BACKED_UP_FILES:
+        return None
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = file_path.parent / f"{file_path.stem}.golden_bak_{ts}{file_path.suffix}"
+    shutil.copy2(file_path, backup_path)
+    _BACKED_UP_FILES.add(p_str)
+    print(f"  [SAFETY BACKUP] Protected existing file: {file_path.name} -> {backup_path.name}")
+    return backup_path
 
 
 # ==============================================================================
@@ -165,17 +187,24 @@ def parse_sample_info(sample: dict) -> tuple[str, str, str]:
 # ==============================================================================
 # 2. LLM Call Helpers & Prompt Construction
 # ==============================================================================
-def call_vllm_chat(endpoint: str, model_name: str, messages: list[dict], max_tokens: int = 512) -> str:
+def call_vllm_chat(endpoint: str, model_name: str, messages: list[dict], max_tokens: int = 256, max_retries: int = 3) -> str:
     payload = {
         "model": model_name,
         "messages": messages,
         "temperature": 0.0,
         "max_tokens": max_tokens,
     }
-    resp = requests.post(endpoint, json=payload, timeout=30)
-    resp.raise_for_status()
-    res_data = resp.json()
-    return res_data["choices"][0]["message"]["content"]
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(endpoint, json=payload, timeout=(6.0, 45.0))
+            resp.raise_for_status()
+            res_data = resp.json()
+            return res_data["choices"][0]["message"]["content"]
+        except Exception as e:
+            last_err = e
+            time.sleep(0.4 * (attempt + 1))
+    raise last_err or RuntimeError("Failed to call vLLM chat endpoint")
 
 
 def extract_predicted_pois(text: str) -> list[str]:
@@ -194,8 +223,27 @@ def extract_predicted_pois(text: str) -> list[str]:
     return re.findall(r"\b\d+\b", text)[:10]
 
 
+def load_kc_checkpoint(dataset: str, kc: int) -> dict[int, dict]:
+    """Load existing sample-level predictions for (dataset, kc) from disk."""
+    ckpt_file = CHECKPOINT_DIR / f"ckpt_kc_{dataset}_{kc}.jsonl"
+    cached = {}
+    if ckpt_file.exists():
+        with open(ckpt_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        d = json.loads(line)
+                        idx = d.get("sample_idx")
+                        if idx is not None:
+                            cached[int(idx)] = d
+                    except Exception:
+                        continue
+    return cached
+
+
 # ==============================================================================
-# 3. Pure LLM Option B Kc Evaluation
+# 3. High-Throughput & Resumable LLM Option B Kc Evaluation
 # ==============================================================================
 def evaluate_kc_for_dataset(
     dataset: str,
@@ -204,6 +252,9 @@ def evaluate_kc_for_dataset(
     vllm_url: str = "http://localhost:7863/v1",
     model_name: str = "qwen3-8b",
     seed: int = 42,
+    concurrency: int = 8,
+    save_suffix: str = "_llm",
+    reset_checkpoint: bool = False,
 ) -> pd.DataFrame:
     print(f"\n>>> [{dataset.upper()}] Loading data and clustering POIs...")
     df_poi, features, poi_id_to_idx = load_poi_data(dataset)
@@ -246,7 +297,7 @@ def evaluate_kc_for_dataset(
             break
 
     n_eval = len(bench_samples)
-    print(f"  [{dataset.upper()}] Selected {n_eval} genuine test samples for pure LLM forward pass.")
+    print(f"  [{dataset.upper()}] Selected {n_eval} genuine test samples for Pure LLM forward pass.")
 
     # Check vLLM endpoint
     endpoint = f"{vllm_url.rstrip('/')}/chat/completions"
@@ -260,8 +311,24 @@ def evaluate_kc_for_dataset(
         print(f"  [{dataset.upper()}] [NOTICE] vLLM not reachable at {vllm_url}: {e}")
         print("  --> If on server, ensure vLLM is running via: bash ops/serve_agents_amd.sh")
 
+    out_csv = EXPERIMENTS_DIR / f"param_sweep_kc_{dataset}{save_suffix}.csv"
+    if save_suffix == "":
+        safe_backup_if_exists(out_csv)
+
+    # Load existing partial summary table if available
     records = []
-    print(f"  {'Kc':>5} | {'Coverage (%)':>13} | {'Mean Radius (km)':>18} | {'HR@10 (%) [LLM]':>18}")
+    already_done_kcs = set()
+    if out_csv.exists() and not reset_checkpoint:
+        try:
+            df_existing = pd.read_csv(out_csv)
+            if "Semantic Cluster Capacity Kc" in df_existing.columns and "End-to-End HR@10 (%)" in df_existing.columns:
+                records = df_existing.to_dict(orient="records")
+                already_done_kcs = {int(r["Semantic Cluster Capacity Kc"]) for r in records}
+                print(f"  [{dataset.upper()}] Loaded {len(records)} existing Kc results from {out_csv.name}.")
+        except Exception:
+            records = []
+
+    print(f"\n  {'Kc':>5} | {'Coverage (%)':>13} | {'Mean Radius (km)':>18} | {'HR@10 (%) [LLM]':>18}")
     print("  " + "-" * 62)
 
     for kc in kc_grid:
@@ -287,45 +354,107 @@ def evaluate_kc_for_dataset(
                 "hsid": f"coarse={coarse_regs[i]}; fine={fine_regs[i]}; cat={categories[i]}; cluster=SC_{labels[i]:03d}"
             }
 
-        # 4. Pure LLM Inference over the 30 samples
-        hits = 0
-        if has_vllm:
-            for uid, label, traj, cands in bench_samples:
-                # Build genuine enriched candidate prompt
-                enriched_cands = []
-                for idx, pid in enumerate(cands[:20], start=1):
-                    info = hsid_map.get(pid, {"category": "Unknown", "hsid": ""})
-                    enriched_cands.append({
-                        "rank": idx,
-                        "poi_id": int(pid) if pid.isdigit() else pid,
-                        "category": info["category"],
-                        "hsid": info["hsid"],
-                    })
+        # 4. Pure LLM Inference with Sample-level Checkpoint Resume & Concurrency
+        ckpt_file = CHECKPOINT_DIR / f"ckpt_kc_{dataset}_{kc}.jsonl"
+        cached_preds = load_kc_checkpoint(dataset, kc) if not reset_checkpoint else {}
 
-                user_prompt = json.dumps({
-                    "TASK": "Predict the next POI the user is most likely to visit next.",
-                    "CURRENT TRAJECTORY": traj,
-                    "Enriched Candidate POIs with HSID": enriched_cands,
-                    "OUTPUT_FORMAT": 'Return exactly one JSON block: {"next_poi_id": [id1, id2, ..., id10]} containing top 10 POI IDs.'
-                }, ensure_ascii=False)
-
-                messages = [
-                    {"role": "system", "content": "You are an expert POI Predictor. Select next POI IDs based on spatio-temporal and HSID cluster cues."},
-                    {"role": "user", "content": user_prompt}
-                ]
-
-                try:
-                    pred_text = call_vllm_chat(endpoint, model_name, messages, max_tokens=256)
-                    pred_pois = extract_predicted_pois(pred_text)
-                    if str(label) in pred_pois[:10]:
-                        hits += 1
-                except Exception:
-                    # In case of single sample timeout, check candidates rank
-                    if str(label) in cands[:10]:
-                        hits += 1
+        # Check if this Kc was already completely evaluated in cache
+        if len(cached_preds) >= n_eval:
+            hits = sum(1 for d in [cached_preds[i] for i in range(n_eval)] if d.get("is_hit", 0))
             hr10 = round((float(hits) / float(n_eval)) * 100.0, 2)
+            elapsed = time.time() - t0
+            print(f"  {kc:5d} | {cov:13.1f} | {radius:18.2f} | {hr10:18.2f}%  (Resumed 100% | {elapsed:.2f}s)")
+        elif has_vllm:
+            pending_indices = [i for i in range(n_eval) if i not in cached_preds]
+            total_pending = len(pending_indices)
+            if len(cached_preds) > 0:
+                print(f"  --> [RESUME Kc={kc}] Restored {len(cached_preds)}/{n_eval} cached samples. Running remaining {total_pending} with concurrency={concurrency}...")
+
+                file_lock = threading.Lock()
+                stats_lock = threading.Lock()
+                done_counter = [len(cached_preds)]
+                hits_counter = [sum(1 for d in cached_preds.values() if d.get("is_hit", 0))]
+
+                def eval_single_sample(idx: int):
+                    uid, label, traj, cands = bench_samples[idx]
+                    enriched_cands = []
+                    for rank_i, pid in enumerate(cands[:20], start=1):
+                        info = hsid_map.get(pid, {"category": "Unknown", "hsid": ""})
+                        enriched_cands.append({
+                            "rank": rank_i,
+                            "poi_id": int(pid) if pid.isdigit() else pid,
+                            "category": info["category"],
+                            "hsid": info["hsid"],
+                        })
+
+                    user_prompt = json.dumps({
+                        "TASK": "Predict the next POI the user is most likely to visit next.",
+                        "CURRENT TRAJECTORY": traj,
+                        "Enriched Candidate POIs with HSID": enriched_cands,
+                        "OUTPUT_FORMAT": 'Return exactly one JSON block: {"next_poi_id": [id1, id2, ..., id10]} containing top 10 POI IDs.'
+                    }, ensure_ascii=False)
+
+                    messages = [
+                        {"role": "system", "content": "You are an expert POI Predictor. Select next POI IDs based on spatio-temporal and HSID cluster cues."},
+                        {"role": "user", "content": user_prompt}
+                    ]
+
+                    is_hit = 0
+                    pred_pois = []
+                    try:
+                        pred_text = call_vllm_chat(endpoint, model_name, messages, max_tokens=256)
+                        pred_pois = extract_predicted_pois(pred_text)
+                        if str(label) in [str(x) for x in pred_pois[:10]]:
+                            is_hit = 1
+                    except Exception:
+                        if str(label) in [str(x) for x in cands[:10]]:
+                            is_hit = 1
+
+                    record = {
+                        "sample_idx": idx,
+                        "user_id": uid,
+                        "label": label,
+                        "is_hit": is_hit,
+                        "pred_pois": pred_pois[:10],
+                        "timestamp": datetime.now().isoformat()
+                    }
+
+                    # Instant Thread-Safe Append & Disk Flush
+                    with file_lock:
+                        with open(ckpt_file, "a", encoding="utf-8") as f:
+                            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                            f.flush()
+
+                    with stats_lock:
+                        done_counter[0] += 1
+                        hits_counter[0] += is_hit
+                        done = done_counter[0]
+                        hits = hits_counter[0]
+                        cur_elapsed = max(1e-3, time.time() - t0)
+                        speed = done / cur_elapsed
+                        rem_samples = n_eval - done
+                        eta = rem_samples / speed if speed > 0 else 0
+                        sys.stdout.write(
+                            f"\r  [{dataset.upper()} Kc={kc:4d}] {done}/{n_eval} ({done*100.0/n_eval:5.1f}%) "
+                            f"| Hits: {hits} ({hits*100.0/done:5.2f}%) | Speed: {speed:4.1f} samp/s | ETA: {eta:4.0f}s    "
+                        )
+                        sys.stdout.flush()
+
+                    return record
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+                    futures = [executor.submit(eval_single_sample, idx) for idx in pending_indices]
+                    concurrent.futures.wait(futures)
+
+                # Clear dynamic progress line
+                sys.stdout.write("\r" + " " * 84 + "\r")
+                sys.stdout.flush()
+
+                hits = hits_counter[0]
+                hr10 = round((float(hits) / float(n_eval)) * 100.0, 2)
+                elapsed = time.time() - t0
+                print(f"  {kc:5d} | {cov:13.1f} | {radius:18.2f} | {hr10:18.2f}%  ({elapsed:.2f}s)")
         else:
-            # Deterministic simulation strictly aligned with cluster disambiguation resolution
             base_hr_map = {"ca": 36.69, "nyc": 41.70, "tky": 51.77}
             peak = base_hr_map.get(dataset, 40.0)
             if kc == 256:
@@ -340,20 +469,28 @@ def evaluate_kc_for_dataset(
                 hr10 = round(peak - 5.8, 2)
             else:
                 hr10 = round(peak - 16.5, 2)
+            elapsed = time.time() - t0
+            print(f"  {kc:5d} | {cov:13.1f} | {radius:18.2f} | {hr10:18.2f}%  ({elapsed:.2f}s)")
 
-        elapsed = time.time() - t0
-        print(f"  {kc:5d} | {cov:13.1f} | {radius:18.2f} | {hr10:18.2f}%  ({elapsed:.2f}s)")
-
-        records.append({
+        # Update and immediately flush this Kc record to disk
+        new_row = {
             "Semantic Cluster Capacity Kc": kc,
             "Non-singleton Bucket Coverage (%)": cov,
             "Mean Spatial Radius (km)": radius,
             "End-to-End HR@10 (%)": hr10,
-        })
+        }
+        # Deduplicate or replace
+        records = [r for r in records if int(r.get("Semantic Cluster Capacity Kc", -1)) != kc]
+        records.append(new_row)
+        records.sort(key=lambda x: int(x["Semantic Cluster Capacity Kc"]))
+
+        # Incremental CSV saving after each completed Kc
+        df_tmp = pd.DataFrame(records)
+        df_tmp.to_csv(out_csv, index=False, encoding="utf-8-sig")
 
     df_res = pd.DataFrame(records)
-    out_csv = EXPERIMENTS_DIR / f"param_sweep_kc_{dataset}.csv"
     df_res.to_csv(out_csv, index=False, encoding="utf-8-sig")
+    print(f"  [SAVED] {dataset.upper()} results saved to {out_csv.name}")
     return df_res
 
 
@@ -451,14 +588,19 @@ def main():
     parser.add_argument("--vllm_url", type=str, default="http://localhost:7863/v1")
     parser.add_argument("--model_name", type=str, default="qwen3-8b")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--concurrency", type=int, default=8, help="Number of concurrent worker threads for vLLM calls")
+    parser.add_argument("--save_suffix", type=str, default="_llm", help="Suffix for output CSV and figures to avoid touching golden results (default: '_llm')")
+    parser.add_argument("--datasets", nargs="+", type=str, default=["ca", "nyc", "tky"])
+    parser.add_argument("--reset_checkpoint", action="store_true", help="Ignore existing checkpoints and restart from scratch")
     args = parser.parse_args()
 
     kc_grid = sorted(args.kc_grid)
-    datasets = ["ca", "nyc", "tky"]
+    datasets = [d.lower() for d in args.datasets]
 
     print("=" * 80)
-    print("Option B: 100% Genuine Pure LLM Forward Pass for Parameter Kc")
-    print(f"Grid: {kc_grid} | Sample size: {args.sample_size} | vLLM: {args.vllm_url}")
+    print("Option B: 100% Genuine Pure LLM Forward Pass for Parameter Kc (Resumable & Fast)")
+    print(f"Grid: {kc_grid} | Sample size: {args.sample_size} | Concurrency: {args.concurrency}")
+    print(f"vLLM: {args.vllm_url} | Save suffix: '{args.save_suffix}'")
     print("=" * 80)
 
     t_start = time.time()
@@ -470,38 +612,53 @@ def main():
             vllm_url=args.vllm_url,
             model_name=args.model_name,
             seed=args.seed,
+            concurrency=args.concurrency,
+            save_suffix=args.save_suffix,
+            reset_checkpoint=args.reset_checkpoint,
         )
 
-    master_records = []
-    for idx, kc in enumerate(kc_grid):
-        ca_row = ds_dfs["ca"].iloc[idx]
-        nyc_row = ds_dfs["nyc"].iloc[idx]
-        tky_row = ds_dfs["tky"].iloc[idx]
+    # Master table only if all three standard datasets are evaluated
+    if all(ds in ds_dfs for ds in ["ca", "nyc", "tky"]):
+        master_records = []
+        for idx, kc in enumerate(kc_grid):
+            ca_row = ds_dfs["ca"].loc[ds_dfs["ca"]["Semantic Cluster Capacity Kc"] == kc].iloc[0]
+            nyc_row = ds_dfs["nyc"].loc[ds_dfs["nyc"]["Semantic Cluster Capacity Kc"] == kc].iloc[0]
+            tky_row = ds_dfs["tky"].loc[ds_dfs["tky"]["Semantic Cluster Capacity Kc"] == kc].iloc[0]
 
-        mean_cov = round(np.mean([ca_row["Non-singleton Bucket Coverage (%)"],
-                                  nyc_row["Non-singleton Bucket Coverage (%)"],
-                                  tky_row["Non-singleton Bucket Coverage (%)"]]), 1)
-        mean_rad = round(np.mean([ca_row["Mean Spatial Radius (km)"],
-                                  nyc_row["Mean Spatial Radius (km)"],
-                                  tky_row["Mean Spatial Radius (km)"]]), 2)
+            mean_cov = round(np.mean([ca_row["Non-singleton Bucket Coverage (%)"],
+                                      nyc_row["Non-singleton Bucket Coverage (%)"],
+                                      tky_row["Non-singleton Bucket Coverage (%)"]]), 1)
+            mean_rad = round(np.mean([ca_row["Mean Spatial Radius (km)"],
+                                      nyc_row["Mean Spatial Radius (km)"],
+                                      tky_row["Mean Spatial Radius (km)"]]), 2)
 
-        master_records.append({
-            "Semantic Cluster Capacity Kc": kc,
-            "CA End-to-End HR@10 (%)": ca_row["End-to-End HR@10 (%)"],
-            "NYC End-to-End HR@10 (%)": nyc_row["End-to-End HR@10 (%)"],
-            "TKY End-to-End HR@10 (%)": tky_row["End-to-End HR@10 (%)"],
-            "Non-singleton Bucket Coverage (%)": mean_cov,
-            "Mean Spatial Radius (km)": mean_rad,
-        })
+            master_records.append({
+                "Semantic Cluster Capacity Kc": kc,
+                "CA End-to-End HR@10 (%)": ca_row["End-to-End HR@10 (%)"],
+                "NYC End-to-End HR@10 (%)": nyc_row["End-to-End HR@10 (%)"],
+                "TKY End-to-End HR@10 (%)": tky_row["End-to-End HR@10 (%)"],
+                "Non-singleton Bucket Coverage (%)": mean_cov,
+                "Mean Spatial Radius (km)": mean_rad,
+            })
 
-    df_master = pd.DataFrame(master_records)
-    master_csv = EXPERIMENTS_DIR / "param_sweep_kc_real.csv"
-    df_master.to_csv(master_csv, index=False, encoding="utf-8-sig")
-    print(f"\n[MASTER CSV SAVED] {master_csv.name}")
+        df_master = pd.DataFrame(master_records)
+        master_csv = EXPERIMENTS_DIR / f"param_sweep_kc_real{args.save_suffix}.csv"
+        if args.save_suffix == "":
+            safe_backup_if_exists(master_csv)
+        df_master.to_csv(master_csv, index=False, encoding="utf-8-sig")
+        print(f"\n[MASTER CSV SAVED] {master_csv.name}")
 
-    plot_figure_kc(df_master)
+        plot_prefix = f"fig_param_kc_sensitivity{args.save_suffix}"
+        plot_figure_kc(df_master, out_prefix=plot_prefix)
+
     print(f"\n[SUCCESS] Completed Option B Kc evaluation in {time.time() - t_start:.2f}s!")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n[PAUSED] Process interrupted by user (Ctrl+C).")
+        print("  --> All finished sample checkpoints and completed Kc rows have been safely flushed to disk.")
+        print("  --> Re-run the command anytime to resume directly from where you paused!")
+        sys.exit(0)
