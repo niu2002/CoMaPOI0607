@@ -233,11 +233,12 @@ def plot_all():
     ax1.set_ylim(k_ymin, k_ymax)
     ax1.grid(True)
 
-    # Latency secondary axis
+    # Latency secondary axis (unified color styling)
     ax1_twin = ax1.twinx()
     ax1_twin.plot(df_k["k"], df_k["latency"], marker='d', color=COLOR_LAT, linestyle=':', linewidth=2.0, label='Latency (ms/sample)')
-    ax1_twin.set_ylabel('Candidate Retrieval Latency (ms)', color='#555555')
-    ax1_twin.tick_params(axis='y', labelcolor='#555555')
+    ax1_twin.set_ylabel('Candidate Retrieval Latency (ms)', color=COLOR_LAT)
+    ax1_twin.tick_params(axis='y', labelcolor=COLOR_LAT, colors=COLOR_LAT)
+    ax1_twin.spines['right'].set_color(COLOR_LAT)
     lat_max = max(30.0, float(np.max(df_k["latency"])) * 1.5)
     ax1_twin.set_ylim(0, lat_max)
 
@@ -302,14 +303,15 @@ def plot_all():
     ax3.set_ylabel('End-to-End HR@10 (%)')
 
     all_hr_vals = np.concatenate([df_kc["ca_hr"], df_kc["nyc_hr"], df_kc["tky_hr"]])
-    ax3.set_ylim(math.floor(np.min(all_hr_vals) - 4), math.ceil(np.max(all_hr_vals) + 5))
+    ax3.set_ylim(28, math.ceil(np.max(all_hr_vals) + 5))
     ax3.grid(True)
 
-    # Coverage secondary axis
+    # Coverage secondary axis (unified color styling)
     ax3_twin = ax3.twinx()
     ax3_twin.plot(x_indices, df_kc["cov"], marker='d', color=COLOR_SEC, linestyle='--', linewidth=2.0, label='Bucket Coverage (%)')
     ax3_twin.set_ylabel('Non-singleton Bucket Coverage (%)', color=COLOR_SEC)
-    ax3_twin.tick_params(axis='y', labelcolor=COLOR_SEC)
+    ax3_twin.tick_params(axis='y', labelcolor=COLOR_SEC, colors=COLOR_SEC)
+    ax3_twin.spines['right'].set_color(COLOR_SEC)
     ax3_twin.set_ylim(70, 105)
 
     # Dynamic annotation at Kc=256
@@ -326,7 +328,7 @@ def plot_all():
 
     lines1, labels1 = ax3.get_legend_handles_labels()
     lines2, labels2 = ax3_twin.get_legend_handles_labels()
-    ax3.legend(lines1 + lines2, labels1 + labels2, loc='lower left')
+    ax3.legend(lines1 + lines2, labels1 + labels2, loc='lower right', framealpha=0.92)
     ax3.set_title('(c) Semantic Cluster Number $K_c$ Trade-off')
 
     # -------------------------------------------------------------
@@ -345,11 +347,12 @@ def plot_all():
     ax4.set_ylim(math.floor(np.min(all_lprof_vals) - 5), math.ceil(np.max(all_lprof_vals) + 5))
     ax4.grid(True)
 
-    # Valid JSON Parse Rate secondary axis
+    # Valid JSON Parse Rate secondary axis (unified color styling)
     ax4_twin = ax4.twinx()
     ax4_twin.plot(df_lprof["lprof"], df_lprof["ok_rate"], marker='x', color=COLOR_PARSE, linestyle='-.', linewidth=2.0, label='Valid JSON Parse Rate (%)')
     ax4_twin.set_ylabel('Valid JSON Parse Rate (%)', color=COLOR_PARSE)
-    ax4_twin.tick_params(axis='y', labelcolor=COLOR_PARSE)
+    ax4_twin.tick_params(axis='y', labelcolor=COLOR_PARSE, colors=COLOR_PARSE)
+    ax4_twin.spines['right'].set_color(COLOR_PARSE)
     ax4_twin.set_ylim(-5, 115)
 
     ax4.axvline(x=120, color='gray', linestyle='--', alpha=0.7)

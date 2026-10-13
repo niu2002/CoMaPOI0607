@@ -106,16 +106,16 @@ def plot_combined_kc_lprof(df_kc: pd.DataFrame, df_lprof: pd.DataFrame, out_pref
     ax1.set_xticklabels(kc_labels)
 
     all_hr = np.concatenate([ca_hr, nyc_hr, tky_hr])
-    y_min = math.floor(np.min(all_hr) - 4)
     y_max = math.ceil(np.max(all_hr) + 6)
-    ax1.set_ylim(max(0, y_min), y_max)
+    ax1.set_ylim(28, y_max)
     ax1.grid(True)
 
-    # Twin axis for Bucket Coverage
+    # Twin axis for Bucket Coverage (unified color styling)
     ax1_twin = ax1.twinx()
     line_cov, = ax1_twin.plot(x_indices, cov_vals, marker='d', color=COLOR_COV, linestyle='--', linewidth=2.0, label='Bucket Coverage (%)')
     ax1_twin.set_ylabel('Non-singleton Bucket Coverage (%)', color=COLOR_COV)
-    ax1_twin.tick_params(axis='y', labelcolor=COLOR_COV)
+    ax1_twin.tick_params(axis='y', labelcolor=COLOR_COV, colors=COLOR_COV)
+    ax1_twin.spines['right'].set_color(COLOR_COV)
     ax1_twin.set_ylim(70, 105)
 
     # Optimal Kc=256 annotation
@@ -134,7 +134,7 @@ def plot_combined_kc_lprof(df_kc: pd.DataFrame, df_lprof: pd.DataFrame, out_pref
 
     lines_p3 = [line_ca, line_nyc, line_tky, line_cov]
     labels_p3 = [l.get_label() for l in lines_p3]
-    ax1.legend(lines_p3, labels_p3, loc='lower left', framealpha=0.92)
+    ax1.legend(lines_p3, labels_p3, loc='lower right', framealpha=0.92)
     ax1.set_title(r'(a) Parameter 3: Semantic Cluster Number $K_c$ Trade-off', pad=10)
 
     # =========================================================================
@@ -167,11 +167,12 @@ def plot_combined_kc_lprof(df_kc: pd.DataFrame, df_lprof: pd.DataFrame, out_pref
     ax2.set_ylim(max(0, y2_min), y2_max)
     ax2.grid(True)
 
-    # Twin axis for Valid JSON Parse Rate
+    # Twin axis for Valid JSON Parse Rate (unified color styling)
     ax2_twin = ax2.twinx()
     line_parse, = ax2_twin.plot(lprof_vals, ok_rate, marker='x', color=COLOR_PARSE, linestyle='-.', linewidth=2.0, label='Valid JSON Parse Rate (%)')
     ax2_twin.set_ylabel('Valid JSON Parse Rate (%)', color=COLOR_PARSE)
-    ax2_twin.tick_params(axis='y', labelcolor=COLOR_PARSE)
+    ax2_twin.tick_params(axis='y', labelcolor=COLOR_PARSE, colors=COLOR_PARSE)
+    ax2_twin.spines['right'].set_color(COLOR_PARSE)
     ax2_twin.set_ylim(-5, 115)
 
     # Optimal L_prof=120 annotation
@@ -197,10 +198,12 @@ def plot_combined_kc_lprof(df_kc: pd.DataFrame, df_lprof: pd.DataFrame, out_pref
 
     out_pdf = FIGURES_DIR / f"{out_prefix}.pdf"
     out_png = FIGURES_DIR / f"{out_prefix}.png"
+    out_v2 = FIGURES_DIR / f"{out_prefix}_v2.png"
     plt.savefig(out_pdf, bbox_inches='tight')
     plt.savefig(out_png, bbox_inches='tight')
+    plt.savefig(out_v2, bbox_inches='tight')
     plt.close()
-    print(f"\n[FIGURE SAVED] Combined 2-Panel Figure saved to:\n  - {out_pdf}\n  - {out_png}")
+    print(f"\n[FIGURE SAVED] Combined 2-Panel Figure saved to:\n  - {out_pdf}\n  - {out_png}\n  - {out_v2}")
 
 
 def main():
