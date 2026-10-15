@@ -464,10 +464,10 @@ def run_sweep_kc(
                     pred_pois = extract_predicted_pois(pred_text)
                     if str(label) in [str(x) for x in pred_pois[:10]]:
                         is_hit = 1
-                except Exception:
-                    # Fallback to candidates ranking
-                    if str(label) in [str(x) for x in cands[:10]]:
-                        is_hit = 1
+                except Exception as e:
+                    # Pure real LLM inference: failure to generate counts as miss (zero synthetic proxy)
+                    is_hit = 0
+                    pred_pois = []
 
                 record = {
                     "sample_idx": idx,
@@ -627,9 +627,10 @@ def run_sweep_lprof(
                     pred_pois = extract_predicted_pois(res_text)
                     if str(label) in [str(x) for x in pred_pois[:10]]:
                         is_hit = 1
-                except Exception:
-                    if str(label) in [str(x) for x in cands[:10]]:
-                        is_hit = 1
+                except Exception as e:
+                    # Pure real LLM inference: failure to generate counts as miss (zero synthetic proxy)
+                    is_hit = 0
+                    pred_pois = []
 
                 record = {
                     "sample_idx": idx,
@@ -841,15 +842,20 @@ def main():
     print(f"  vLLM Endpoint: {args.vllm_url}")
     if available_models:
         print(f"  Available Models at Endpoint: {', '.join(available_models)}")
-    else:
-        print(f"  [WARN] vLLM endpoint not responding at {args.vllm_url}.")
-        print(f"  --> For LLM parameters (kc, lprof), please ensure vLLM is running.")
-
     datasets = ["ca", "nyc", "tky"] if args.dataset == "all" else [args.dataset]
     if args.param == "all":
         params = ["k", "mu", "kc", "lprof"]
     else:
         params = [p.strip() for p in args.param.split(",") if p.strip()]
+
+    needs_vllm = any(p in ["kc", "lprof"] for p in params)
+    if needs_vllm and not available_models:
+        print(f"\n[FATAL ERROR] vLLM endpoint '{args.vllm_url}' is unreachable!")
+        print(f"  Parameters {params} require 100% authentic LLM forward inference with fine-tuned LoRA weights.")
+        print(f"  To start vLLM on the AMD server, run:")
+        print(f"    bash ops/serve_agents_amd.sh")
+        print(f"  or run the one-click suite: bash ops/run_param_empirical_amd.sh")
+        sys.exit(1)
 
     total_start = time.time()
 
