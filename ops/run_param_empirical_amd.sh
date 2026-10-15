@@ -42,6 +42,7 @@ sleep 2
 # 2. Locate LoRA Adapter Checkpoints
 CA_LORA="$PROJECT_ROOT/finetune/results/amd-agent3-ca-lora-v1/sft-ca/bs16-gas1-ms-1-agent3-lr0.0001"
 NYC_LORA="$PROJECT_ROOT/finetune/results/amd-agent3-nyc-lora-v1/sft-nyc/bs4-gas2-ms-1-agent3-lr0.0001"
+TKY_LORA="$PROJECT_ROOT/finetune/results/amd-agent3-tky-lora-v1/sft-tky/bs4-gas2-ms-1-agent3-lr0.0001"
 
 # Check alternative directory if needed
 if [[ ! -d "$CA_LORA" ]]; then
@@ -58,6 +59,13 @@ if [[ ! -d "$NYC_LORA" ]]; then
   fi
 fi
 
+if [[ ! -d "$TKY_LORA" ]]; then
+  FOUND_TKY=$(find "$PROJECT_ROOT/finetune/results" -type d -path "*agent3*tky*" | head -n 1 || true)
+  if [[ -n "$FOUND_TKY" && -d "$FOUND_TKY" ]]; then
+    TKY_LORA="$FOUND_TKY"
+  fi
+fi
+
 LORA_MODULES=()
 if [[ -d "$CA_LORA" ]]; then
   echo ">>> [LORA FOUND] CA Adapter:  $CA_LORA"
@@ -69,6 +77,11 @@ fi
 if [[ -d "$NYC_LORA" ]]; then
   echo ">>> [LORA FOUND] NYC Adapter: $NYC_LORA"
   LORA_MODULES+=("agent3-nyc=$NYC_LORA")
+fi
+
+if [[ -d "$TKY_LORA" ]]; then
+  echo ">>> [LORA FOUND] TKY Adapter: $TKY_LORA"
+  LORA_MODULES+=("agent3-tky=$TKY_LORA")
 fi
 
 LORA_ARGS=()

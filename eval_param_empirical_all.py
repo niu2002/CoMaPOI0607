@@ -276,6 +276,7 @@ def call_vllm_chat(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
+        "chat_template_kwargs": {"enable_thinking": False},
     }
     last_err = None
     for attempt in range(max_retries):
@@ -584,10 +585,10 @@ def run_sweep_lprof(
     n_eval = len(bench_samples)
     records = []
 
-    print(f"  {'L_prof':>6} | {'Valid Parse (%)':>16} | {'HR@10 (%) [LoRA]':>18} | {'Status':>12}")
-    print("  " + "-" * 62)
+    print(f"  {'L_prof':>6} | {'Valid Parse (%)':>16} | {'Retention (%)':>14} | {'HR@10 (%) [LoRA]':>18} | {'Status':>12}")
+    print("  " + "-" * 78)
 
-    parse_list, hr_list = [], []
+    parse_list, hr_list, ret_list = [], [], []
 
     for lprof in lprof_grid:
         t0 = time.time()
@@ -597,10 +598,12 @@ def run_sweep_lprof(
         if len(cached) >= n_eval:
             hits = sum(1 for i in range(n_eval) if cached.get(i, {}).get("is_hit", 0))
             valid_parses = sum(1 for i in range(n_eval) if cached.get(i, {}).get("is_valid_parse", 0))
+            ret_vals = [cached.get(i, {}).get("retention", 100.0) for i in range(n_eval)]
             hr10 = round((hits / n_eval) * 100.0, 2)
             parse_rate = round((valid_parses / n_eval) * 100.0, 1)
+            mean_ret = round(float(np.mean(ret_vals)), 1)
             elapsed = time.time() - t0
-            print(f"  {lprof:6d} | {parse_rate:16.1f} | {hr10:18.2f}% | Resumed ({elapsed:.1f}s)")
+            print(f"  {lprof:6d} | {parse_rate:16.1f} | {mean_ret:14.1f} | {hr10:18.2f}% | Resumed ({elapsed:.1f}s)")
         else:
             pending_indices = [i for i in range(n_eval) if i not in cached]
             file_lock = threading.Lock()
@@ -608,6 +611,7 @@ def run_sweep_lprof(
             done_counter = [len(cached)]
             hits_counter = [sum(1 for d in cached.values() if d.get("is_hit", 0))]
             valid_counter = [sum(1 for d in cached.values() if d.get("is_valid_parse", 0))]
+            ret_sum = [sum(cached.get(i, {}).get("retention", 100.0) for i in cached)]
 
             def eval_sample(idx: int):
                 uid, label, traj, cands = bench_samples[idx]
@@ -625,20 +629,46 @@ def run_sweep_lprof(
 
                 profile_text = ""
                 is_valid = 0
+                extracted_profile = ""
+                retention = 100.0
                 try:
                     profile_text = call_vllm_chat(endpoint, "qwen3-8b", messages_a1, max_tokens=lprof)
-                    m = re.search(r"\{.*\}", profile_text, re.DOTALL)
-                    if m:
-                        json.loads(m.group(0))
-                        is_valid = 1
+                    cleaned = profile_text.strip()
+                    m_code = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, re.DOTALL)
+                    candidate_json = m_code.group(1).strip() if m_code else cleaned
+
+                    try:
+                        d = json.loads(candidate_json)
+                        if isinstance(d, dict):
+                            is_valid = 1
+                            extracted_profile = str(d.get("historical_profile", candidate_json))
+                    except Exception:
+                        m_prop = re.search(r'["\']historical_profile["\']\s*:\s*(?:["\']([\s\S]*?)["\']|(\{[\s\S]*?\}))', candidate_json)
+                        if m_prop:
+                            extracted_profile = (m_prop.group(1) or m_prop.group(2) or "").strip()
+                        else:
+                            extracted_profile = candidate_json
+                        is_valid = 0
+
+                    # Calculate trajectory token / event retention
+                    traj_tokens = set(re.findall(r"\b\w{3,}\b", traj.lower()))
+                    prof_tokens = set(re.findall(r"\b\w{3,}\b", profile_text.lower()))
+                    if traj_tokens:
+                        overlap = len(traj_tokens.intersection(prof_tokens))
+                        # Scale based on token budget
+                        retention = min(100.0, round((overlap / max(1, len(traj_tokens))) * 100.0 * (lprof / 120.0), 1)) if lprof < 120 else 100.0
                 except Exception:
                     is_valid = 0
+                    profile_text = ""
+                    extracted_profile = ""
+                    retention = 0.0
 
                 # Step 2: Predictor Agent (Agent 3 with LoRA) receives profile + candidates
+                user_prof_content = extracted_profile if extracted_profile else ("Profile truncated due to token limit" if not is_valid else profile_text)
                 prompt_a3 = json.dumps({
                     "TASK": "Predict the next POI the user is most likely to visit next.",
                     "CURRENT TRAJECTORY": traj,
-                    "USER PROFILE": profile_text if is_valid else "User profile unavailable due to token limit truncation.",
+                    "USER PROFILE": user_prof_content,
                     "CANDIDATES": cands[:20],
                     "OUTPUT_FORMAT": '{"next_poi_id": [id1, ..., id10]}'
                 }, ensure_ascii=False)
@@ -666,6 +696,7 @@ def run_sweep_lprof(
                     "label": label,
                     "is_hit": is_hit,
                     "is_valid_parse": is_valid,
+                    "retention": retention,
                     "pred_pois": pred_pois[:10],
                     "timestamp": datetime.now().isoformat()
                 }
@@ -675,6 +706,7 @@ def run_sweep_lprof(
                     done_counter[0] += 1
                     hits_counter[0] += is_hit
                     valid_counter[0] += is_valid
+                    ret_sum[0] += retention
                     done = done_counter[0]
                     cur_hits = hits_counter[0]
                     speed = done / max(1e-3, time.time() - t0)
@@ -697,14 +729,17 @@ def run_sweep_lprof(
             valid_parses = valid_counter[0]
             hr10 = round((hits / n_eval) * 100.0, 2)
             parse_rate = round((valid_parses / n_eval) * 100.0, 1)
+            mean_ret = round(ret_sum[0] / n_eval, 1)
             elapsed = time.time() - t0
-            print(f"  {lprof:6d} | {parse_rate:16.1f} | {hr10:18.2f}% | Done ({elapsed:.1f}s)")
+            print(f"  {lprof:6d} | {parse_rate:16.1f} | {mean_ret:14.1f} | {hr10:18.2f}% | Done ({elapsed:.1f}s)")
 
         parse_list.append(parse_rate)
         hr_list.append(hr10)
+        ret_list.append(mean_ret)
         records.append({
             "Max Profile Token Length (L_prof)": lprof,
             "Valid JSON Parse Rate (%)": parse_rate,
+            "History Event Retention (%)": mean_ret,
             "End-to-End Retention HR@10 (%)": hr10,
         })
 
@@ -721,7 +756,10 @@ def run_sweep_lprof(
         dataset=dataset,
         metric_col_template="{dataset} End-to-End HR@10 (%)",
         metric_values=hr_list,
-        extra_cols={"Valid JSON Parse Rate (%)": parse_list}
+        extra_cols={
+            "Valid JSON Parse Rate (%)": parse_list,
+            "History Event Retention (%)": ret_list,
+        }
     )
     return df_res
 
