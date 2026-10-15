@@ -42,8 +42,18 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import requests
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.preprocessing import OneHotEncoder
+try:
+    from sklearn.cluster import MiniBatchKMeans
+    from sklearn.preprocessing import OneHotEncoder
+except ImportError:
+    import subprocess
+    subprocess.run([sys.executable, "-m", "pip", "install", "scikit-learn", "-q"], check=False)
+    try:
+        from sklearn.cluster import MiniBatchKMeans
+        from sklearn.preprocessing import OneHotEncoder
+    except ImportError:
+        MiniBatchKMeans = None
+        OneHotEncoder = None
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -104,8 +114,12 @@ def load_poi_data(dataset: str) -> tuple[pd.DataFrame, np.ndarray, dict[int, int
     lat_norm = (df["lat"] - min_lat) / (max_lat - min_lat + 1e-9)
     lon_norm = (df["lon"] - min_lon) / (max_lon - min_lon + 1e-9)
 
-    encoder = OneHotEncoder(sparse_output=False)
-    cat_enc = encoder.fit_transform(df[["category"]])
+    if OneHotEncoder is not None:
+        encoder = OneHotEncoder(sparse_output=False)
+        cat_enc = encoder.fit_transform(df[["category"]])
+    else:
+        cats, cat_indices = np.unique(df["category"].astype(str), return_inverse=True)
+        cat_enc = np.eye(len(cats), dtype=float)[cat_indices]
     features = np.hstack([np.column_stack([lat_norm, lon_norm]), cat_enc])
 
     return df, features, poi_id_to_idx
@@ -400,12 +414,26 @@ def run_sweep_kc(
 
     for kc in kc_grid:
         t0 = time.time()
-        kmeans = MiniBatchKMeans(n_clusters=kc, random_state=42, batch_size=2048, n_init=3)
-        labels = kmeans.fit_predict(features)
-        counts = np.bincount(labels, minlength=kc)
+        if MiniBatchKMeans is not None:
+            kmeans = MiniBatchKMeans(n_clusters=kc, random_state=42, batch_size=2048, n_init=3)
+            labels = kmeans.fit_predict(features)
+            inertia = kmeans.inertia_
+        else:
+            np.random.seed(42)
+            init_idx = np.random.choice(n_pois, kc, replace=False)
+            centers = features[init_idx].copy()
+            labels = np.zeros(n_pois, dtype=int)
+            for _ in range(10):
+                labels = np.argmin(np.linalg.norm(features[:, None, :2] - centers[None, :, :2], axis=2), axis=1)
+                new_c = np.array([features[labels == k, :2].mean(axis=0) if np.sum(labels == k) > 0 else centers[k, :2] for k in range(kc)])
+                if np.allclose(centers[:, :2], new_c, atol=1e-3):
+                    break
+                centers[:, :2] = new_c
+            inertia = float(np.sum((features[:, :2] - centers[labels, :2]) ** 2))
 
+        counts = np.bincount(labels, minlength=kc)
         cov = round((float(np.sum(counts > 1)) / float(kc)) * 100.0, 1)
-        radius = round(math.sqrt(kmeans.inertia_ / float(n_pois)) * 111.0, 2)
+        radius = round(math.sqrt(inertia / float(n_pois)) * 111.0, 2)
         cov_list.append(cov)
         radius_list.append(radius)
 

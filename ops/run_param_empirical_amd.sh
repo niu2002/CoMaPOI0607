@@ -58,21 +58,22 @@ if [[ ! -d "$NYC_LORA" ]]; then
   fi
 fi
 
-LORA_ARGS=()
+LORA_MODULES=()
 if [[ -d "$CA_LORA" ]]; then
   echo ">>> [LORA FOUND] CA Adapter:  $CA_LORA"
-  LORA_ARGS+=(--lora-modules "agent3-ca=$CA_LORA" "agent3=$CA_LORA")
+  LORA_MODULES+=("agent3-ca=$CA_LORA" "agent3=$CA_LORA")
 else
   echo ">>> [WARN] CA LoRA adapter not found at $CA_LORA, running base model"
 fi
 
 if [[ -d "$NYC_LORA" ]]; then
   echo ">>> [LORA FOUND] NYC Adapter: $NYC_LORA"
-  LORA_ARGS+=(--lora-modules "agent3-nyc=$NYC_LORA")
+  LORA_MODULES+=("agent3-nyc=$NYC_LORA")
 fi
 
-if (( ${#LORA_ARGS[@]} > 0 )); then
-  LORA_ARGS=(--enable-lora --max-loras 4 "${LORA_ARGS[@]}")
+LORA_ARGS=()
+if (( ${#LORA_MODULES[@]} > 0 )); then
+  LORA_ARGS=(--enable-lora --max-loras 4 --lora-modules "${LORA_MODULES[@]}")
 fi
 
 # 3. Start vLLM OpenAI-Compatible Server
@@ -119,6 +120,9 @@ echo ""
 echo "================================================================================"
 echo "  Running Empirical Parameter Sweeps (Samples: $NUM_SAMPLES, Concurrency: $CONCURRENCY)"
 echo "================================================================================"
+
+# Ensure scikit-learn is installed for clustering
+python -m pip install scikit-learn -q || true
 
 python eval_param_empirical_all.py \
   --dataset "$DATASET" \
