@@ -813,8 +813,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Empirical Parameter Sensitivity Evaluation Suite")
     parser.add_argument("--dataset", type=str, default="ca", choices=["ca", "nyc", "tky", "all"],
                         help="Dataset to evaluate: ca, nyc, tky, or all")
-    parser.add_argument("--param", type=str, default="all", choices=["k", "mu", "kc", "lprof", "all"],
-                        help="Parameter to sweep: k, mu, kc, lprof, or all")
+    parser.add_argument("--param", type=str, default="all",
+                        help="Parameter(s) to sweep: k, mu, kc, lprof, all, or comma-separated list like 'kc,lprof'")
     parser.add_argument("--num_samples", type=int, default=100,
                         help="Number of fixed benchmark test samples (default: 100)")
     parser.add_argument("--concurrency", type=int, default=8,
@@ -846,7 +846,10 @@ def main():
         print(f"  --> For LLM parameters (kc, lprof), please ensure vLLM is running.")
 
     datasets = ["ca", "nyc", "tky"] if args.dataset == "all" else [args.dataset]
-    params = ["k", "mu", "kc", "lprof"] if args.param == "all" else [args.param]
+    if args.param == "all":
+        params = ["k", "mu", "kc", "lprof"]
+    else:
+        params = [p.strip() for p in args.param.split(",") if p.strip()]
 
     total_start = time.time()
 
