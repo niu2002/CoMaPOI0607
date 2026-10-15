@@ -70,6 +70,24 @@ def _read_col(df: pd.DataFrame, col_names: list[str], default_vals: list[float])
 
 def load_k_data():
     k_grid = [10, 20, 30, 50, 75, 100]
+    real_csv = EXPERIMENTS_DIR / "param_sweep_k_real_pareto.csv"
+    if real_csv.exists():
+        df_real = pd.read_csv(real_csv)
+        df_real.columns = [c.lstrip('\ufeff').strip() for c in df_real.columns]
+        ca_c = [c for c in df_real.columns if "CA" in c and "Recall" in c]
+        nyc_c = [c for c in df_real.columns if "NYC" in c and "Recall" in c]
+        tky_c = [c for c in df_real.columns if "TKY" in c and "Recall" in c]
+        lat_c = [c for c in df_real.columns if "Latency" in c]
+        if ca_c and nyc_c and tky_c:
+            lat_vals = df_real[lat_c[0]].values if lat_c else [12.7, 13.6, 14.4, 16.1, 18.3, 20.4]
+            return pd.DataFrame({
+                "k": k_grid,
+                "ca_rec": df_real[ca_c[0]].values,
+                "nyc_rec": df_real[nyc_c[0]].values,
+                "tky_rec": df_real[tky_c[0]].values,
+                "latency": lat_vals,
+            })
+
     csv_ca = EXPERIMENTS_DIR / "param_sweep_k_ca.csv"
     csv_nyc = EXPERIMENTS_DIR / "param_sweep_k_nyc.csv"
     csv_tky = EXPERIMENTS_DIR / "param_sweep_k_tky.csv"
@@ -83,7 +101,7 @@ def load_k_data():
     nyc_rec = _read_col(df_nyc, cols, [60.67, 65.67, 67.33, 68.67, 71.00, 71.67])
     tky_rec = _read_col(df_tky, cols, [56.86, 63.21, 67.56, 70.23, 70.90, 71.57])
 
-    lat_cols = ["Inference Latency (ms/sample)", "Retrieval Latency (ms/sample)"]
+    lat_cols = ["Inference Latency (ms/sample)", "Retrieval Latency (ms/sample)", "LLM Inference Latency (ms)"]
     latency = _read_col(df_ca, lat_cols, [12.7, 13.6, 14.4, 16.1, 18.3, 20.4])
 
     return pd.DataFrame({
@@ -97,6 +115,21 @@ def load_k_data():
 
 def load_mu_data():
     mu_grid = [5, 10, 15, 30, 50, 80, 100]
+    real_csv = EXPERIMENTS_DIR / "param_sweep_mu_real.csv"
+    if real_csv.exists():
+        df_real = pd.read_csv(real_csv)
+        df_real.columns = [c.lstrip('\ufeff').strip() for c in df_real.columns]
+        ca_c = [c for c in df_real.columns if "CA" in c and ("Recall" in c or "HR" in c)]
+        nyc_c = [c for c in df_real.columns if "NYC" in c and ("Recall" in c or "HR" in c)]
+        tky_c = [c for c in df_real.columns if "TKY" in c and ("Recall" in c or "HR" in c)]
+        if ca_c and nyc_c and tky_c:
+            return pd.DataFrame({
+                "mu": mu_grid,
+                "ca_hr": df_real[ca_c[0]].values,
+                "nyc_hr": df_real[nyc_c[0]].values,
+                "tky_hr": df_real[tky_c[0]].values,
+            })
+
     csv_ca = EXPERIMENTS_DIR / "param_sweep_mu_ca.csv"
     csv_nyc = EXPERIMENTS_DIR / "param_sweep_mu_nyc.csv"
     csv_tky = EXPERIMENTS_DIR / "param_sweep_mu_tky.csv"
