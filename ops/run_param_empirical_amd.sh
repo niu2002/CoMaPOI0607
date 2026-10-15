@@ -22,7 +22,7 @@ SERVED_MODEL_NAME="${SERVED_MODEL_NAME:-qwen3-8b}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.78}"
 NUM_SAMPLES="${NUM_SAMPLES:-100}"
 CONCURRENCY="${CONCURRENCY:-8}"
-PARAM="${PARAM:-all}"
+PARAM="${PARAM:-kc,lprof}"
 DATASET="${DATASET:-all}"
 
 echo "================================================================================"
