@@ -1,0 +1,7 @@
+Semantic Cluster Capacity Kc,CA End-to-End HR@10 (%),NYC End-to-End HR@10 (%),TKY End-to-End HR@10 (%),Non-singleton Bucket Coverage (%),Mean Spatial Radius (km)
+32,38.74,43.15,46.88,100.0,70.40
+64,40.56,49.72,50.92,100.0,54.04
+128,41.93,55.84,53.64,100.0,38.21
+256,42.48,58.10,54.08,100.0,27.48
+512,39.81,57.36,53.31,97.9,18.24
+1024,35.24,53.68,49.12,92.1,15.75

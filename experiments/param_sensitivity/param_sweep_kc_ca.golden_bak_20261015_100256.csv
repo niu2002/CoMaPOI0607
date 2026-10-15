@@ -1,0 +1,7 @@
+Semantic Cluster Capacity Kc,Non-singleton Bucket Coverage (%),Mean Spatial Radius (km),Semantic Collision Rate (%),End-to-End HR@10 (%),Normalized Spatial Inertia
+32,100.0,83.47,25.6,36.68,0.565513
+64,100.0,69.9,25.6,39.64,0.396599
+128,100.0,50.24,25.6,41.82,0.204837
+256,100.0,32.29,25.6,42.48,0.084608
+512,100.0,21.6,25.6,41.15,0.037881
+1024,97.9,18.43,25.5,37.92,0.027567

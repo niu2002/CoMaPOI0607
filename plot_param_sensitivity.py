@@ -204,7 +204,9 @@ def load_lprof_data():
         ca_c = [c for c in df_real.columns if "CA" in c and "HR" in c]
         nyc_c = [c for c in df_real.columns if "NYC" in c and "HR" in c]
         tky_c = [c for c in df_real.columns if "TKY" in c and "HR" in c]
-        parse_c = [c for c in df_real.columns if "JSON" in c or "Parse" in c]
+        parse_c = [c for c in df_real.columns if "Retention" in c and "%" in c and "HR" not in c]
+        if not parse_c:
+            parse_c = [c for c in df_real.columns if "JSON" in c or "Parse" in c]
         if ca_c and nyc_c and tky_c and parse_c:
             return pd.DataFrame({
                 "lprof": lprof_grid,
@@ -212,6 +214,7 @@ def load_lprof_data():
                 "nyc_hr": df_real[nyc_c[0]].values,
                 "tky_hr": df_real[tky_c[0]].values,
                 "ok_rate": df_real[parse_c[0]].values,
+                "metric_label": "History Event Retention (%)" if "Retention" in parse_c[0] else "Valid JSON Parse Rate (%)"
             })
 
     csv_ca = EXPERIMENTS_DIR / "param_sweep_lprof_ca.csv"
@@ -380,19 +383,20 @@ def plot_all():
     ax4.set_ylim(math.floor(np.min(all_lprof_vals) - 5), math.ceil(np.max(all_lprof_vals) + 5))
     ax4.grid(True)
 
-    # Valid JSON Parse Rate secondary axis (unified color styling)
+    # History Event Retention secondary axis
+    sec_label = df_lprof.get("metric_label", pd.Series(["History Event Retention (%)"])).iloc[0]
     ax4_twin = ax4.twinx()
-    ax4_twin.plot(df_lprof["lprof"], df_lprof["ok_rate"], marker='x', color=COLOR_PARSE, linestyle='-.', linewidth=2.0, label='Valid JSON Parse Rate (%)')
-    ax4_twin.set_ylabel('Valid JSON Parse Rate (%)', color=COLOR_PARSE)
+    ax4_twin.plot(df_lprof["lprof"], df_lprof["ok_rate"], marker='x', color=COLOR_PARSE, linestyle='-.', linewidth=2.0, label=sec_label)
+    ax4_twin.set_ylabel(sec_label, color=COLOR_PARSE)
     ax4_twin.tick_params(axis='y', labelcolor=COLOR_PARSE, colors=COLOR_PARSE)
     ax4_twin.spines['right'].set_color(COLOR_PARSE)
     ax4_twin.set_ylim(-5, 115)
 
     ax4.axvline(x=120, color='gray', linestyle='--', alpha=0.7)
     ca_hr_120 = df_lprof["ca_hr"].iloc[2]
-    ax4.annotate(f'Optimal $L_{{prof}}=120$\n(100% Parse, CA: {ca_hr_120:.1f}%)',
+    ax4.annotate(f'Optimal $L_{{prof}}=120$\n(100% Retention, CA: {ca_hr_120:.1f}%)',
                  xy=(120, ca_hr_120),
-                 xytext=(130, ca_hr_120 - 6.0),
+                 xytext=(135, ca_hr_120 + 3.0),
                  arrowprops=dict(arrowstyle="->", color='black', lw=1.2),
                  fontsize=9.2, fontweight='bold',
                  bbox=dict(boxstyle="round,pad=0.25", fc="#ffffcc", ec="gray", lw=0.8))
