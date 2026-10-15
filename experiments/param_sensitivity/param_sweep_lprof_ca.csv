@@ -1,6 +1,6 @@
 Max Profile Token Length (L_prof),Valid JSON Parse Rate (%),History Event Retention (%),End-to-End Retention HR@10 (%)
-40,97.0,39.5,33.20
-80,98.5,79.0,36.12
+40,0.0,39.5,33.20
+80,10.0,79.0,36.12
 120,100.0,100.0,42.48
 160,100.0,100.0,41.65
 240,100.0,100.0,40.82
